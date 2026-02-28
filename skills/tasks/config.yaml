@@ -1,0 +1,6 @@
+data_dir: ~/.local/share/assistant/tasks
+index_file: .index.md
+unassigned_dir: _unassigned
+exclude:
+  - .index.md
+user_name: User

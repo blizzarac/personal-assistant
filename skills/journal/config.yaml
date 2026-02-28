@@ -1,0 +1,5 @@
+data_dir: ~/.local/share/assistant/journal
+index_file: .index.md
+exclude:
+  - .index.md
+user_name: User

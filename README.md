@@ -6,7 +6,7 @@ A Claude Code skills package that turns Claude into a personal assistant — jou
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/personal-assistant.git
+   git clone https://github.com/blizzarac/personal-assistant.git
    cd personal-assistant
    ```
 

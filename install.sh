@@ -4,8 +4,8 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_DIR="$HOME/.claude/skills"
 DATA_ROOT="$HOME/.local/share/assistant"
-SKILLS=(assistant journal tasks meeting person)
-DATA_SKILLS=(journal tasks meeting person)
+SKILLS=(assistant journal backlog meeting person)
+DATA_SKILLS=(journal backlog meeting person)
 
 usage() {
     echo "Usage: $0 [--uninstall]"

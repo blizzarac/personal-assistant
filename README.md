@@ -1,6 +1,6 @@
 # personal-assistant
 
-A Claude Code skills package that turns Claude into a personal assistant — journal, tasks, meetings, and people management, all coordinated by an assistant skill.
+A Claude Code skills package that turns Claude into a personal assistant — journal, backlog, meetings, and people management, all coordinated by an assistant skill.
 
 ## Quick Start
 
@@ -29,7 +29,7 @@ A Claude Code skills package that turns Claude into a personal assistant — jou
 |-------|-------------|-----------------|
 | **assistant** | Coordinates across skills for cross-cutting queries | "catch me up", "what happened last week?", "summary of today" |
 | **journal** | Daily entries and reflections | "journal entry", "what did I do last week?" |
-| **tasks** | Project-based task management with priorities and due dates | "create a task", "open tasks", "task dashboard" |
+| **backlog** | Project-based task management with priorities and due dates | "create a task", "open tasks", "task dashboard" |
 | **meeting** | Structured meeting notes linked to journal and people | "meeting with Alice about X", "what meetings did I have?" |
 | **person** | People directory with relationships and birthdays | "add person", "birthdays in March", "who is Jane?" |
 
@@ -69,7 +69,7 @@ You: When did I last go running?
 You: Summarize January
 ```
 
-### Tasks
+### Backlog
 
 Create and manage tasks organized by project, with priorities and due dates.
 
@@ -133,16 +133,16 @@ The assistant skill coordinates across all skills when your question spans multi
 
 ```
 You: Catch me up on this week
-Claude: [Queries journal, meetings, and tasks in parallel, presents a timeline]
+Claude: [Queries journal, meetings, and backlog in parallel, presents a timeline]
 
 You: What's going on with Alice?
-Claude: [Searches person directory, meetings with Alice, tasks mentioning Alice]
+Claude: [Searches person directory, meetings with Alice, backlog mentioning Alice]
 
 You: I met Alice yesterday, we discussed the migration project and she'll
      send the proposal by Friday
 Claude: I'll do the following:
         1. Meeting: Create meeting notes for the migration discussion
-        2. Tasks: Create a task for Alice's proposal, due Friday
+        2. Backlog: Create a task for Alice's proposal, due Friday
         Does that look right?
 ```
 

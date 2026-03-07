@@ -9,8 +9,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
 SKILLS_DIR = os.path.join(HOME, ".claude", "skills")
 DATA_ROOT = os.path.join(HOME, ".local", "share", "assistant")
-SKILLS = ["assistant", "journal", "tasks", "meeting", "person"]
-DATA_SKILLS = ["journal", "tasks", "meeting", "person"]
+SKILLS = ["assistant", "journal", "backlog", "meeting", "person"]
+DATA_SKILLS = ["journal", "backlog", "meeting", "person"]
 
 
 def install():

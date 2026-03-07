@@ -1,4 +1,4 @@
-data_dir: ~/.local/share/assistant/tasks
+data_dir: ~/.local/share/assistant/backlog
 index_file: .index.md
 unassigned_dir: _unassigned
 exclude:

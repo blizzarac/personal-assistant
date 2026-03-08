@@ -37,7 +37,7 @@ status: open          # open | in-progress | done | blocked
 inform:
 outcome:
 project: MyProject
-Priority:
+priority:
 due_date:
 created_date: YYYY-MM-DD
 completed_date:
@@ -47,15 +47,7 @@ description: One-line summary
 
 **Body:** Freeform notes, details, or acceptance criteria.
 
-## Phase 1: Refresh Search Index
-
-On every invocation, run:
-```
-qmd embed
-```
-This re-indexes all QMD collections. Only mention this to the user if relevant.
-
-## Phase 2: Detect Mode
+## Phase 1: Detect Mode
 
 **Query mode** — The user is asking about existing tasks:
 - "Show me open tasks for MyProject"
@@ -77,7 +69,7 @@ This re-indexes all QMD collections. Only mention this to the user if relevant.
 
 If ambiguous, ask: "Do you want to create a new task, update an existing one, or search your tasks?"
 
-## Phase 3a: Query Mode (Read-Only)
+## Phase 2a: Query Mode (Read-Only)
 
 **Never write files during query mode.**
 
@@ -122,7 +114,7 @@ Or read the file directly with the Read tool.
 
 Present results as markdown tables or narrative depending on the question.
 
-## Phase 3b: Create Mode
+## Phase 2b: Create Mode
 
 Extract title, project, priority, due date from user input. Ask clarifying questions **one at a time** if needed.
 
@@ -136,7 +128,7 @@ If user mentions attachments or supporting files, create a folder-style task man
 
 Run `qmd embed` after creation.
 
-## Phase 3c: Update Mode
+## Phase 2c: Update Mode
 
 Search for the task first. If multiple matches, confirm which one with the user.
 
@@ -154,6 +146,20 @@ python3 ~/.claude/skills/backlog/backlog_cli.py close "MyProject/Task Name.md"
 Auto-fills `completed_date` with today.
 
 Run `qmd embed` after any update.
+
+## Migration
+
+If old-format task files exist (flat `.md` files in the root of the tasks directory instead of project subfolders), use the migrate command to move them:
+
+```bash
+# Preview what would change
+python3 ~/.claude/skills/backlog/backlog_cli.py migrate --dry-run
+
+# Run the migration
+python3 ~/.claude/skills/backlog/backlog_cli.py migrate
+```
+
+Migration handles: moving files into `<project>/` subfolders, converting old `completed: true/false` to `status: open/done`, and adding missing frontmatter fields.
 
 ## Common Mistakes
 

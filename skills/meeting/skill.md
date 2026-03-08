@@ -42,15 +42,7 @@ scheduling: Ad hoc
 - `## Decisions` — what was decided
 - `## Action Items` — what needs to happen next, with owners
 
-## Phase 1: Refresh Search Index
-
-On every invocation, run:
-```
-qmd embed
-```
-This re-indexes all QMD collections. Only mention this to the user if relevant.
-
-## Phase 2: Detect Mode
+## Phase 1: Detect Mode
 
 **Create mode** — The user is describing a meeting:
 - "Meeting with Alice about Cloud Migration"
@@ -64,7 +56,7 @@ This re-indexes all QMD collections. Only mention this to the user if relevant.
 
 If ambiguous, ask: "Do you want to create meeting notes, or search past meetings?"
 
-## Phase 3a: Query Mode (Read-Only)
+## Phase 2a: Query Mode (Read-Only)
 
 **Never write files during query mode.**
 
@@ -89,7 +81,7 @@ Or read the file directly with the Read tool.
 
 Present results as markdown table or narrative depending on query type.
 
-## Phase 3b: Create Mode
+## Phase 2b: Create Mode
 
 ### Step 1: Gather input
 Extract from user's notes: title, date (default: today), attendees, scheduling, links.
@@ -135,19 +127,19 @@ scheduling: Ad hoc
 - [if any, with owners]
 ```
 
-### Step 5: Create or append journal entry
-
-Follow the journal skill pattern for the same date:
-1. Check if YYYY/YYYY-MM-DD-DayOfWeek-Journal.md exists in the journal data directory (configured in meeting's config.yaml as journal_data_dir)
-2. If exists — append meeting summary under `## Meetings` section
-3. If not — create a minimal journal entry with the meeting link
-
-### Step 6: Update search index
+### Step 5: Update search index
 
 Run:
 ```
 qmd embed
 ```
+
+### Step 6: Create or append journal entry
+
+Follow the journal skill pattern for the same date:
+1. Check if YYYY/YYYY-MM-DD-DayOfWeek-Journal.md exists in the journal data directory (configured in meeting's config.yaml as journal_data_dir)
+2. If exists — append meeting summary under `## Meetings` section
+3. If not — create a minimal journal entry with the meeting link
 
 ## Common Mistakes
 

@@ -42,15 +42,7 @@ children:
 
 **Body:** Freeform notes about the person.
 
-## Phase 1: Refresh Search Index
-
-On every invocation, run:
-```
-qmd embed
-```
-This re-indexes all QMD collections. Only mention this to the user if relevant.
-
-## Phase 2: Detect Mode
+## Phase 1: Detect Mode
 
 **Update mode** — Input contains "update" + a person's name:
 - "Update John Doe — last met today"
@@ -66,7 +58,7 @@ This re-indexes all QMD collections. Only mention this to the user if relevant.
 
 If ambiguous, ask: "Do you want to create a new person entry, search for someone, or update an existing entry?"
 
-## Phase 3a: Query Mode (Read-Only)
+## Phase 2a: Query Mode (Read-Only)
 
 **Never write files during query mode.**
 
@@ -102,7 +94,7 @@ For family questions, use `read` to get the person file, then follow `father`/`m
 - **Multi-person results:** Markdown table with relevant columns
 - **Single-person lookup:** Summary card showing all populated fields
 
-## Phase 3b: Create Mode
+## Phase 2b: Create Mode
 
 1. **Parse input** — Extract name, how_we_met, birthday, tags from user message
 2. **Check for duplicates:**
@@ -114,7 +106,7 @@ For family questions, use `read` to get the person file, then follow `father`/`m
 4. **Create file** — Write `Firstname Lastname.md` with frontmatter.
 5. **Update search index** — Run `qmd embed`.
 
-## Phase 3c: Update Mode
+## Phase 2c: Update Mode
 
 1. **Find the person:**
    ```

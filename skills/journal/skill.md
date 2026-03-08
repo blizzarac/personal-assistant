@@ -36,15 +36,7 @@ description: One-line summary of the day
 
 **Body:** Freeform structured content from conversation.
 
-## Phase 1: Refresh Search Index
-
-On every invocation, run:
-```
-qmd embed
-```
-This re-indexes all QMD collections. Only mention this to the user if relevant.
-
-## Phase 2: Detect Mode
+## Phase 1: Detect Mode
 
 **Write mode** — The user wants to create a new journal entry:
 - "Journal entry", "Let me tell you about my day"
@@ -56,7 +48,7 @@ This re-indexes all QMD collections. Only mention this to the user if relevant.
 
 If ambiguous, ask: "Do you want to write a journal entry, or are you looking for a summary of past entries?"
 
-## Phase 3a: Query Mode
+## Phase 2a: Query Mode
 
 **Never write files during query mode.**
 
@@ -84,7 +76,7 @@ Present results in the appropriate format:
 - **Time-based** — narrative of key events from that period
 - **Search** — show matching entries from QMD results
 
-## Phase 3b: Write Mode
+## Phase 2b: Write Mode
 
 Conversational flow — ask questions **one at a time**:
 
@@ -122,9 +114,9 @@ description: One-line summary of the day
 [Freeform structured content from conversation.]
 ```
 
-## Phase 4: Update Search Index
+## Phase 3: Update Search Index
 
-After creating/modifying a journal entry, run:
+After creating or modifying a journal entry, run:
 ```
 qmd embed
 ```

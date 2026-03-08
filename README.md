@@ -164,9 +164,9 @@ To add a new skill to the assistant's registry:
 
 1. Create your skill in `~/.claude/skills/<skill-name>/` with a `skill.md` and optional CLI
 2. Add a row to the Skill Registry table in `~/.claude/skills/assistant/skill.md`
-3. Add query patterns to the Request Type mapping table
+3. Register a [QMD](https://github.com/tobi/qmd) collection for your data directory (if searchable)
 
-Your CLI should follow the convention: `<skill-name>_cli.py` with `refresh`, `query`, and `read` commands that output JSON.
+Your CLI should follow the convention: `<skill-name>_cli.py` with `refresh`, `query`/`search`, and `read` commands that output JSON. The `refresh` command runs `qmd embed` to re-index; queries scan files directly for structured filters and use QMD for text search.
 
 ## Uninstalling
 

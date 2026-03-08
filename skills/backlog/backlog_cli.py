@@ -151,7 +151,7 @@ def parse_frontmatter(filepath):
 
 FRONTMATTER_FIELD_ORDER = [
     "links", "tags", "status", "inform", "outcome", "project",
-    "Priority", "due_date", "created_date", "completed_date", "description",
+    "priority", "due_date", "created_date", "completed_date", "description",
 ]
 
 
@@ -271,7 +271,7 @@ def entry_from_file(rel_path, abs_path):
         else:
             status = "open"
 
-    priority = fm.get("Priority", fm.get("priority", ""))
+    priority = fm.get("priority", fm.get("Priority", ""))
     if not priority:
         priority = ""
 
@@ -508,14 +508,14 @@ def cmd_create(args):
         "inform": "",
         "outcome": "",
         "project": project,
-        "Priority": "",
+        "priority": "",
         "due_date": "",
         "created_date": today,
         "completed_date": "",
         "description": "",
     }
     if args.priority:
-        fm["Priority"] = args.priority
+        fm["priority"] = args.priority
     if args.due_date:
         fm["due_date"] = args.due_date
     if args.description:
@@ -540,7 +540,7 @@ def cmd_update(args):
         if args.status.lower() == "done":
             updates["completed_date"] = datetime.now().strftime("%Y-%m-%d")
     if args.priority:
-        updates["Priority"] = args.priority
+        updates["priority"] = args.priority
     if args.project:
         updates["project"] = args.project
     if args.due_date:

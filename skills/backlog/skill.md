@@ -1,15 +1,23 @@
 ---
-name: tasks
-description: Use when the user wants to create, update, query, or manage tasks. Trigger phrases include "task", "tasks", "to do", "what should I work on", "open tasks", "create a task", "close task", "task dashboard", "mark as done", "my priorities".
+name: backlog
+description: Use when the user wants to create, update, query, or manage tasks. Trigger phrases include "backlog", "task", "to do", "what should I work on", "open tasks", "create a task", "close task", "task dashboard", "mark as done", "my priorities".
 ---
 
-# Tasks
+# Backlog
 
 Manage tasks: create, update, query, and get overviews.
 
-**CLI tool:** `python3 ~/.claude/skills/tasks/task_cli.py <command> [args]`
-**Config:** `~/.claude/skills/tasks/config.yaml`
-**Tasks directory:** Configured in config.yaml (default: ~/.local/share/assistant/tasks)
+**CLI tool:** `python3 ~/.claude/skills/backlog/backlog_cli.py <command> [args]`
+**Config:** `~/.claude/skills/backlog/config.yaml`
+**Tasks directory:** Configured in config.yaml (default: ~/.local/share/assistant/backlog)
+**Search:** Uses [QMD](https://github.com/tobi/qmd) for hybrid semantic search when available, falls back to substring matching.
+
+## Prerequisites
+
+Install QMD for semantic search (optional but recommended):
+```bash
+npm install -g @tobilu/qmd
+```
 
 ## Notes Structure
 
@@ -22,7 +30,6 @@ Manage tasks: create, update, query, and get overviews.
       screenshot.png
   _unassigned/
     Task without project.md
-  .index.md
 ```
 
 Tasks are organized by project. Simple tasks are single files; tasks with attachments use a folder.
@@ -47,13 +54,13 @@ description: One-line summary
 
 **Body:** Freeform notes, details, or acceptance criteria.
 
-## Phase 1: Refresh Index
+## Phase 1: Refresh Search Index
 
 On every invocation, run:
 ```
-python3 ~/.claude/skills/tasks/task_cli.py refresh
+python3 ~/.claude/skills/backlog/backlog_cli.py refresh
 ```
-Returns JSON: `{added, removed, total}`. Only mention changes to the user if relevant.
+This re-embeds the QMD collection for search. Returns JSON: `{status, indexed, total}`. Only mention changes to the user if relevant.
 
 ## Phase 2: Detect Mode
 
@@ -85,34 +92,34 @@ Use CLI commands:
 
 **Filter tasks:**
 ```
-python3 ~/.claude/skills/tasks/task_cli.py query --status open
-python3 ~/.claude/skills/tasks/task_cli.py query --status open --project MyProject
-python3 ~/.claude/skills/tasks/task_cli.py query --search "Cloud Migration"
-python3 ~/.claude/skills/tasks/task_cli.py query --due-before 2026-03-01
-python3 ~/.claude/skills/tasks/task_cli.py query --priority 1
+python3 ~/.claude/skills/backlog/backlog_cli.py query --status open
+python3 ~/.claude/skills/backlog/backlog_cli.py query --status open --project MyProject
+python3 ~/.claude/skills/backlog/backlog_cli.py query --search "Cloud Migration"
+python3 ~/.claude/skills/backlog/backlog_cli.py query --due-before 2026-03-01
+python3 ~/.claude/skills/backlog/backlog_cli.py query --priority 1
 ```
-Filters can be combined. Returns `{results, count}`.
+Filters can be combined. The `--search` flag uses QMD hybrid search (semantic + BM25) when available. Returns `{results, count, source}`.
 
 **Dashboard overview:**
 ```
-python3 ~/.claude/skills/tasks/task_cli.py dashboard
+python3 ~/.claude/skills/backlog/backlog_cli.py dashboard
 ```
 Returns projects with counts, top tasks, overdue, due soon, and summary.
 
 **Statistics:**
 ```
-python3 ~/.claude/skills/tasks/task_cli.py stats
-python3 ~/.claude/skills/tasks/task_cli.py stats --project MyProject
+python3 ~/.claude/skills/backlog/backlog_cli.py stats
+python3 ~/.claude/skills/backlog/backlog_cli.py stats --project MyProject
 ```
 
 **List projects:**
 ```
-python3 ~/.claude/skills/tasks/task_cli.py list-projects
+python3 ~/.claude/skills/backlog/backlog_cli.py list-projects
 ```
 
 **Read a specific task:**
 ```
-python3 ~/.claude/skills/tasks/task_cli.py read "MyProject/API Integration.md"
+python3 ~/.claude/skills/backlog/backlog_cli.py read "MyProject/API Integration.md"
 ```
 
 Present results as markdown tables or narrative depending on the question.
@@ -122,7 +129,7 @@ Present results as markdown tables or narrative depending on the question.
 Extract title, project, priority, due date from user input. Ask clarifying questions **one at a time** if needed.
 
 ```
-python3 ~/.claude/skills/tasks/task_cli.py create --title "Task Name" --project MyProject --priority 5 --due-date 2026-03-01 --description "One-line summary"
+python3 ~/.claude/skills/backlog/backlog_cli.py create --title "Task Name" --project MyProject --priority 5 --due-date 2026-03-01 --description "One-line summary"
 ```
 
 If user mentions attachments or supporting files, create a folder-style task manually:
@@ -137,24 +144,24 @@ Search for the task first. If multiple matches, confirm which one with the user.
 
 **Update fields:**
 ```
-python3 ~/.claude/skills/tasks/task_cli.py update "MyProject/Task Name.md" --status in-progress
-python3 ~/.claude/skills/tasks/task_cli.py update "MyProject/Task Name.md" --priority 3
-python3 ~/.claude/skills/tasks/task_cli.py update "MyProject/Task Name.md" --due-date 2026-04-01
+python3 ~/.claude/skills/backlog/backlog_cli.py update "MyProject/Task Name.md" --status in-progress
+python3 ~/.claude/skills/backlog/backlog_cli.py update "MyProject/Task Name.md" --priority 3
+python3 ~/.claude/skills/backlog/backlog_cli.py update "MyProject/Task Name.md" --due-date 2026-04-01
 ```
 
 **Mark as done (shortcut):**
 ```
-python3 ~/.claude/skills/tasks/task_cli.py close "MyProject/Task Name.md"
+python3 ~/.claude/skills/backlog/backlog_cli.py close "MyProject/Task Name.md"
 ```
 Auto-fills `completed_date` with today.
 
 Run `refresh` after any update.
 
-## Phase 4: Refresh Index
+## Phase 4: Refresh Search Index
 
 After any write operation (create, update, close), run:
 ```
-python3 ~/.claude/skills/tasks/task_cli.py refresh
+python3 ~/.claude/skills/backlog/backlog_cli.py refresh
 ```
 
 ## Common Mistakes
@@ -162,7 +169,6 @@ python3 ~/.claude/skills/tasks/task_cli.py refresh
 | Mistake | Fix |
 |---------|-----|
 | Writing files during query mode | Query mode is read-only |
-| Reading index files directly | Use CLI commands instead |
 | Asking multiple questions at once | One question per message during create mode |
 | Not running refresh after writes | Always refresh after create/update/close |
 | Creating duplicate tasks | Search first before creating |

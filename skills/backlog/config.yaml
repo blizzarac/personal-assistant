@@ -1,5 +1,5 @@
-data_dir: ~/.local/share/assistant/tasks
-index_file: .index.md
+data_dir: ~/.local/share/assistant/backlog
+collection: backlog
 unassigned_dir: _unassigned
 exclude:
   - .index.md

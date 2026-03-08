@@ -172,15 +172,49 @@ def event_filename(event):
     return f"{safe_title} ({date}).md"
 
 
-def sync_events_to_files(events, calendar_name, year):
+def _build_event_id_index():
+    """Scan existing files and build event_id -> filepath mapping."""
+    index = {}
+    files = discover_files()
+    for rel_path, abs_path in files.items():
+        try:
+            fm, _ = parse_frontmatter(abs_path)
+            eid = fm.get("event_id", "")
+            if eid:
+                index[eid] = abs_path
+        except Exception:
+            pass
+    return index
+
+
+def sync_events_to_files(events, calendar_name, year, eid_index=None):
     """Write event markdown files to data dir. Returns count of files written."""
     year_dir = os.path.join(DATA_DIR, str(year))
     os.makedirs(year_dir, exist_ok=True)
+    if eid_index is None:
+        eid_index = {}
     count = 0
     for event in events:
+        # Skip cancelled events
+        if event.get("status") == "cancelled":
+            # Remove local file if it was previously synced
+            eid = event.get("id", "")
+            if eid and eid in eid_index:
+                try:
+                    os.remove(eid_index[eid])
+                except OSError:
+                    pass
+            continue
+
         content, _title = event_to_markdown(event, calendar_name)
-        fname = event_filename(event)
-        filepath = os.path.join(year_dir, fname)
+        eid = event.get("id", "")
+
+        # Check if we already have a file for this event_id (may have different filename)
+        filepath = eid_index.get(eid) if eid else None
+        if not filepath:
+            fname = event_filename(event)
+            filepath = os.path.join(year_dir, fname)
+
         # Only write if changed
         if os.path.exists(filepath):
             with open(filepath, "r", encoding="utf-8") as f:
@@ -188,6 +222,8 @@ def sync_events_to_files(events, calendar_name, year):
                     continue
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
+        if eid:
+            eid_index[eid] = filepath
         count += 1
     return count
 
@@ -401,6 +437,7 @@ def do_sync(args):
             return
         cals = [cal_cfg]
 
+    eid_index = _build_event_id_index()
     total_synced = 0
     for cal in cals:
         try:
@@ -415,12 +452,16 @@ def do_sync(args):
             events = result.get("items", [])
             cal_name = cal.get("name", cal["id"])
 
+            # Group by year for directory structure
+            by_year = {}
             for e in events:
                 s = e.get("start", {})
                 date_str = s.get("dateTime", s.get("date", ""))
                 if date_str:
                     year = int(date_str[:4])
-                    total_synced += sync_events_to_files([e], cal_name, year)
+                    by_year.setdefault(year, []).append(e)
+            for year, year_events in by_year.items():
+                total_synced += sync_events_to_files(year_events, cal_name, year, eid_index)
         except Exception as e:
             sys.stderr.write(f"Error syncing {cal.get('name', cal['id'])}: {e}\n")
 

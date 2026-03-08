@@ -1,0 +1,23 @@
+data_dir: ~/.local/share/assistant/calendar
+collection: calendar
+credentials_file: ~/.config/assistant/google-credentials.json
+token_file: ~/.config/assistant/google-token.json
+
+# Calendar access configuration
+# Each calendar entry has: id, name, and access (read or readwrite)
+# The "primary" id refers to the user's default Google Calendar.
+#
+# calendars:
+# - id: primary
+#   name: Personal
+#   access: readwrite
+# - id: abc123@group.calendar.google.com
+#   name: Work
+#   access: read
+# - id: def456@group.calendar.google.com
+#   name: Family
+#   access: readwrite
+calendars:
+- id: primary
+  name: Personal
+  access: readwrite

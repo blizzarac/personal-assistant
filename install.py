@@ -10,14 +10,15 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
 SKILLS_DIR = os.path.join(HOME, ".claude", "skills")
 DATA_ROOT = os.path.join(HOME, ".local", "share", "assistant")
-SKILLS = ["assistant", "journal", "backlog", "meeting", "person"]
-DATA_SKILLS = ["journal", "backlog", "meeting", "person"]
+SKILLS = ["assistant", "journal", "backlog", "meeting", "person", "calendar"]
+DATA_SKILLS = ["journal", "backlog", "meeting", "person", "calendar"]
 
 QMD_COLLECTIONS = {
     "journal": os.path.join(DATA_ROOT, "journal"),
     "backlog": os.path.join(DATA_ROOT, "backlog"),
     "meeting": os.path.join(DATA_ROOT, "meeting"),
     "person": os.path.join(DATA_ROOT, "person"),
+    "calendar": os.path.join(DATA_ROOT, "calendar"),
 }
 
 QMD_CONTEXTS = {
@@ -25,6 +26,7 @@ QMD_CONTEXTS = {
     "backlog": "Task backlog organized by project folders, with priorities and due dates",
     "meeting": "Meeting notes with attendees, topics, decisions, and action items",
     "person": "People directory with relationships, birthdays, and how we met",
+    "calendar": "Google Calendar events synced locally, with dates, attendees, and locations",
 }
 
 

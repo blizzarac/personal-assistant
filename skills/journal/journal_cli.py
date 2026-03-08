@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""CLI tool for managing the journal index and queries."""
+"""CLI tool for managing journal entries with QMD-powered search."""
 
 import argparse
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 from datetime import datetime
 
@@ -13,6 +15,7 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def load_config():
     cfg = {}
@@ -34,19 +37,39 @@ def load_config():
                     cfg[last_key].append(line[2:].strip())
     return cfg
 
+
 CFG = load_config()
 NOTES_DIR = os.path.expanduser(CFG["data_dir"])
-INDEX_PATH = os.path.join(NOTES_DIR, CFG["index_file"])
+COLLECTION = CFG.get("collection", "journal")
 EXCLUDE = CFG.get("exclude", [])
 if isinstance(EXCLUDE, str):
     EXCLUDE = [EXCLUDE]
+
+# ---------------------------------------------------------------------------
+# QMD helpers
+# ---------------------------------------------------------------------------
+
+
+def qmd_available():
+    return shutil.which("qmd") is not None
+
+
+def qmd_search(query_text, n=20):
+    cmd = ["qmd", "query", "-c", COLLECTION, "-n", str(n), "--json", query_text]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            return None
+        return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Frontmatter parsing
 # ---------------------------------------------------------------------------
 
 def parse_frontmatter(filepath):
-    """Parse YAML frontmatter from a markdown file."""
     fm = {}
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
@@ -78,67 +101,15 @@ def parse_frontmatter(filepath):
     return fm
 
 # ---------------------------------------------------------------------------
-# Markdown table I/O
-# ---------------------------------------------------------------------------
-
-ENTRY_HEADERS = ["Date", "File", "Type", "Description"]
-
-def read_index_table(filepath, start_marker):
-    """Read a markdown table section into list of dicts."""
-    if not os.path.exists(filepath):
-        return []
-    rows = []
-    with open(filepath, "r", encoding="utf-8") as f:
-        in_section = False
-        in_table = False
-        headers = []
-        for line in f:
-            line = line.strip()
-            if line.startswith(start_marker):
-                in_section = True
-                continue
-            if in_section and line.startswith("| ") and not in_table:
-                headers = [h.strip() for h in line.strip("|").split("|")]
-                in_table = True
-                continue
-            if in_table and line.startswith("|---"):
-                continue
-            if in_table and line.startswith("|"):
-                vals = [v.strip() for v in line.strip("|").split("|")]
-                row = {}
-                for i, h in enumerate(headers):
-                    row[h] = vals[i] if i < len(vals) else ""
-                rows.append(row)
-            elif in_table and not line.startswith("|"):
-                break
-    return rows
-
-def write_index(entries):
-    """Write the full journal index file."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    lines = [
-        "# Journal Index",
-        f"Last updated: {today}",
-        "",
-        "## Entries",
-        "",
-        "| " + " | ".join(ENTRY_HEADERS) + " |",
-        "| " + " | ".join(["------"] * len(ENTRY_HEADERS)) + " |",
-    ]
-    for row in sorted(entries, key=lambda r: r.get("Date", "")):
-        vals = [row.get(h, "—") for h in ENTRY_HEADERS]
-        lines.append("| " + " | ".join(vals) + " |")
-    lines.append("")
-    with open(INDEX_PATH, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-
-# ---------------------------------------------------------------------------
 # File discovery
 # ---------------------------------------------------------------------------
+
 
 def discover_files():
     """Find all journal .md files in year subfolders."""
     files = {}
+    if not os.path.isdir(NOTES_DIR):
+        return files
     for year_dir in sorted(os.listdir(NOTES_DIR)):
         year_path = os.path.join(NOTES_DIR, year_dir)
         if not os.path.isdir(year_path) or not re.match(r"^\d{4}$", year_dir):
@@ -149,8 +120,9 @@ def discover_files():
                 files[rel_path] = os.path.join(year_path, fname)
     return files
 
+
 def entry_from_file(rel_path, abs_path):
-    """Create an index entry from a journal file."""
+    """Create an entry dict from a journal file."""
     fm = parse_frontmatter(abs_path)
     date = fm.get("date", "")
     if isinstance(date, str):
@@ -163,9 +135,9 @@ def entry_from_file(rel_path, abs_path):
         tags = [tags]
     entry_type = "work" if "work" in tags else "personal"
 
-    description = fm.get("description", "—")
+    description = fm.get("description", "")
     if not description:
-        description = "—"
+        description = ""
 
     return {
         "Date": date_str,
@@ -174,55 +146,90 @@ def entry_from_file(rel_path, abs_path):
         "Description": description,
     }
 
+
+def get_all_entries():
+    """Scan all journal files and return entry dicts."""
+    files = discover_files()
+    entries = []
+    for rel_path, abs_path in sorted(files.items()):
+        try:
+            entries.append(entry_from_file(rel_path, abs_path))
+        except Exception as e:
+            sys.stderr.write(f"Error parsing {rel_path}: {e}\n")
+    return entries
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
 def cmd_refresh(args):
-    disk_files = discover_files()
-    entries = read_index_table(INDEX_PATH, "## Entries")
-    indexed_files = {r["File"] for r in entries}
-    disk_set = set(disk_files.keys())
+    """Re-embed the QMD collection."""
+    if not qmd_available():
+        print(json.dumps({"error": "qmd is not installed. Install with: npm install -g @tobilu/qmd"}))
+        sys.exit(1)
 
-    added_files = disk_set - indexed_files
-    removed_files = indexed_files - disk_set
+    try:
+        result = subprocess.run(["qmd", "embed"], capture_output=True, text=True, timeout=120)
+        if result.returncode == 0:
+            total = len(discover_files())
+            print(json.dumps({"status": "ok", "indexed": True, "total": total}))
+        else:
+            print(json.dumps({"status": "error", "message": "qmd embed failed"}))
+            sys.exit(1)
+    except subprocess.TimeoutExpired:
+        print(json.dumps({"status": "error", "message": "qmd embed timed out"}))
+        sys.exit(1)
 
-    if not added_files and not removed_files:
-        print(json.dumps({"added": [], "removed": [], "total": len(entries)}))
-        return
-
-    if removed_files:
-        entries = [e for e in entries if e["File"] not in removed_files]
-
-    added_list = []
-    for rel_path in sorted(added_files):
-        try:
-            entry = entry_from_file(rel_path, disk_files[rel_path])
-            entries.append(entry)
-            added_list.append(rel_path)
-        except Exception as e:
-            sys.stderr.write(f"Error parsing {rel_path}: {e}\n")
-
-    write_index(entries)
-    print(json.dumps({"added": added_list, "removed": sorted(removed_files), "total": len(entries)}))
 
 def cmd_query(args):
-    entries = read_index_table(INDEX_PATH, "## Entries")
+    """Query journal entries. Uses QMD for text search, direct scan for structured filters."""
+    # Text search via QMD
+    if args.search and qmd_available():
+        qmd_results = qmd_search(args.search)
+        if qmd_results is not None:
+            files = discover_files()
+            entries = []
+            seen = set()
+            for result in qmd_results:
+                path = result.get("path", "")
+                if path in files and path not in seen:
+                    seen.add(path)
+                    entry = entry_from_file(path, files[path])
+                    entry["_score"] = result.get("score", 0)
+                    entries.append(entry)
 
+            # Apply structured filters on top
+            entries = _apply_structured_filters(entries, args)
+            print(json.dumps({"results": entries, "count": len(entries), "source": "qmd"}))
+            return
+
+    # Fallback: scan all files
+    entries = get_all_entries()
+
+    # Text search fallback
+    if args.search:
+        term = args.search.lower()
+        entries = [e for e in entries if term in e.get("Description", "").lower()]
+
+    entries = _apply_structured_filters(entries, args)
+    source = "scan-fallback" if args.search else "scan"
+    print(json.dumps({"results": entries, "count": len(entries), "source": source}))
+
+
+def _apply_structured_filters(entries, args):
+    """Apply structured frontmatter filters."""
     if args.date:
         query = args.date
         entries = [e for e in entries if e.get("Date", "").startswith(query)]
     if args.tag:
         tag = args.tag.lower()
         entries = [e for e in entries if tag in e.get("Type", "").lower()]
-    if args.search:
-        term = args.search.lower()
-        entries = [e for e in entries if term in e.get("Description", "").lower()]
+    return entries
 
-    print(json.dumps({"results": entries, "count": len(entries)}))
 
 def cmd_read(args):
-    # Try as relative path first, then as filename in any year dir
+    """Read a specific journal file."""
     filepath = os.path.join(NOTES_DIR, args.file)
     if not os.path.exists(filepath):
         # Search year dirs
@@ -239,16 +246,17 @@ def cmd_read(args):
     fm = parse_frontmatter(filepath)
     print(json.dumps({"file": args.file, "frontmatter": fm, "content": content}))
 
+
 def main():
     parser = argparse.ArgumentParser(description="Journal CLI")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("refresh", help="Diff filesystem vs index, update index")
+    sub.add_parser("refresh", help="Re-embed QMD collection")
 
     q = sub.add_parser("query", help="Query journal entries")
     q.add_argument("--date", help="Filter by date prefix (YYYY, YYYY-MM, YYYY-MM-DD)")
     q.add_argument("--tag", help="Filter by type (work/personal)")
-    q.add_argument("--search", help="Search descriptions")
+    q.add_argument("--search", help="Search descriptions (uses QMD when available)")
 
     r = sub.add_parser("read", help="Read a journal file")
     r.add_argument("file", help="Filename or relative path")

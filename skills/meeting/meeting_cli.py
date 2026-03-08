@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""CLI tool for managing the meetings index and queries."""
+"""CLI tool for managing meeting notes with QMD-powered search."""
 
 import argparse
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 from datetime import datetime
 
@@ -13,6 +15,7 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def load_config():
     cfg = {}
@@ -34,13 +37,34 @@ def load_config():
                     cfg[last_key].append(line[2:].strip())
     return cfg
 
+
 CFG = load_config()
 NOTES_DIR = os.path.expanduser(CFG["data_dir"])
-INDEX_PATH = os.path.join(NOTES_DIR, CFG["index_file"])
+COLLECTION = CFG.get("collection", "meeting")
 PERSON_DATA_DIR = os.path.expanduser(CFG.get("person_data_dir", "~/.local/share/assistant/person"))
 EXCLUDE = CFG.get("exclude", [])
 if isinstance(EXCLUDE, str):
     EXCLUDE = [EXCLUDE]
+
+# ---------------------------------------------------------------------------
+# QMD helpers
+# ---------------------------------------------------------------------------
+
+
+def qmd_available():
+    return shutil.which("qmd") is not None
+
+
+def qmd_search(query_text, n=20):
+    cmd = ["qmd", "query", "-c", COLLECTION, "-n", str(n), "--json", query_text]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            return None
+        return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Frontmatter parsing
@@ -79,57 +103,9 @@ def parse_frontmatter(filepath):
     return fm
 
 # ---------------------------------------------------------------------------
-# Markdown table I/O
-# ---------------------------------------------------------------------------
-
-ENTRY_HEADERS = ["Date", "File", "Title", "Attendees", "Scheduling", "Description"]
-
-def read_index():
-    if not os.path.exists(INDEX_PATH):
-        return []
-    rows = []
-    with open(INDEX_PATH, "r", encoding="utf-8") as f:
-        in_table = False
-        headers = []
-        for line in f:
-            line = line.strip()
-            if line.startswith("| Date"):
-                headers = [h.strip() for h in line.strip("|").split("|")]
-                in_table = True
-                continue
-            if in_table and line.startswith("|---"):
-                continue
-            if in_table and line.startswith("|"):
-                vals = [v.strip() for v in line.strip("|").split("|")]
-                row = {}
-                for i, h in enumerate(headers):
-                    row[h] = vals[i] if i < len(vals) else ""
-                rows.append(row)
-            elif in_table and not line.startswith("|"):
-                break
-    return rows
-
-def write_index(entries):
-    today = datetime.now().strftime("%Y-%m-%d")
-    lines = [
-        "# Meetings Index",
-        f"Last updated: {today}",
-        "",
-        "## Entries",
-        "",
-        "| " + " | ".join(ENTRY_HEADERS) + " |",
-        "| " + " | ".join(["------"] * len(ENTRY_HEADERS)) + " |",
-    ]
-    for row in sorted(entries, key=lambda r: r.get("Date", "")):
-        vals = [row.get(h, "") for h in ENTRY_HEADERS]
-        lines.append("| " + " | ".join(vals) + " |")
-    lines.append("")
-    with open(INDEX_PATH, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-
-# ---------------------------------------------------------------------------
 # File discovery
 # ---------------------------------------------------------------------------
+
 
 def discover_meetings():
     """Find all meeting .md files in year/ subfolders."""
@@ -146,26 +122,24 @@ def discover_meetings():
                 files[rel_path] = os.path.join(year_path, fname)
     return files
 
+
 def entry_from_file(rel_path, abs_path):
+    """Create an entry dict from a meeting file."""
     fm = parse_frontmatter(abs_path)
     filename = os.path.basename(rel_path)
 
     date = fm.get("date", "")
     if not date:
-        # Try to extract from filename: Title (YYYY-MM-DD).md
         m = re.search(r"\((\d{4}-\d{2}-\d{2})\)", filename)
         if m:
             date = m.group(1)
 
-    # Title from filename
     title = filename.replace(".md", "")
     title = re.sub(r"\s*\(\d{4}-\d{2}-\d{2}\)$", "", title)
 
-    # Attendees
     attendees = fm.get("attendees", fm.get("attendents", []))
     if isinstance(attendees, str):
         attendees = [attendees] if attendees else []
-    # Clean wiki-link formatting for the index
     clean_attendees = []
     for a in attendees:
         a = a.strip('"')
@@ -178,10 +152,8 @@ def entry_from_file(rel_path, abs_path):
     if not scheduling:
         scheduling = "Ad hoc"
 
-    # Description: first 80 chars of body content
     with open(abs_path, "r", encoding="utf-8") as f:
         content = f.read()
-    # Skip frontmatter
     if content.startswith("---"):
         end = content.find("---", 3)
         if end != -1:
@@ -201,47 +173,67 @@ def entry_from_file(rel_path, abs_path):
         "Description": description,
     }
 
+
+def get_all_entries():
+    """Scan all meeting files and return entry dicts."""
+    files = discover_meetings()
+    entries = []
+    for rel_path, abs_path in sorted(files.items()):
+        try:
+            entries.append(entry_from_file(rel_path, abs_path))
+        except Exception as e:
+            sys.stderr.write(f"Error parsing {rel_path}: {e}\n")
+    return entries
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
 def cmd_refresh(args):
-    disk_files = discover_meetings()
-    entries = read_index()
-    indexed_files = {r["File"] for r in entries}
-    disk_set = set(disk_files.keys())
+    """Re-embed the QMD collection."""
+    if not qmd_available():
+        print(json.dumps({"error": "qmd is not installed. Install with: npm install -g @tobilu/qmd"}))
+        sys.exit(1)
 
-    added = disk_set - indexed_files
-    removed = indexed_files - disk_set
+    try:
+        result = subprocess.run(["qmd", "embed"], capture_output=True, text=True, timeout=120)
+        if result.returncode == 0:
+            total = len(discover_meetings())
+            print(json.dumps({"status": "ok", "indexed": True, "total": total}))
+        else:
+            print(json.dumps({"status": "error", "message": "qmd embed failed"}))
+            sys.exit(1)
+    except subprocess.TimeoutExpired:
+        print(json.dumps({"status": "error", "message": "qmd embed timed out"}))
+        sys.exit(1)
 
-    if not added and not removed:
-        print(json.dumps({"added": [], "removed": [], "total": len(entries)}))
-        return
-
-    if removed:
-        entries = [e for e in entries if e["File"] not in removed]
-
-    added_list = []
-    for rel_path in sorted(added):
-        try:
-            entry = entry_from_file(rel_path, disk_files[rel_path])
-            entries.append(entry)
-            added_list.append(rel_path)
-        except Exception as e:
-            sys.stderr.write(f"Error parsing {rel_path}: {e}\n")
-
-    write_index(entries)
-    print(json.dumps({"added": added_list, "removed": sorted(removed), "total": len(entries)}))
 
 def cmd_query(args):
-    entries = read_index()
+    """Query meetings. Uses QMD for text search, direct scan for structured filters."""
+    # Text search via QMD
+    if args.search and qmd_available():
+        qmd_results = qmd_search(args.search)
+        if qmd_results is not None:
+            files = discover_meetings()
+            entries = []
+            seen = set()
+            for result in qmd_results:
+                path = result.get("path", "")
+                if path in files and path not in seen:
+                    seen.add(path)
+                    entry = entry_from_file(path, files[path])
+                    entry["_score"] = result.get("score", 0)
+                    entries.append(entry)
 
-    if args.attendee:
-        query = args.attendee.lower()
-        entries = [e for e in entries if query in e.get("Attendees", "").lower()]
-    if args.date:
-        query = args.date
-        entries = [e for e in entries if e.get("Date", "").startswith(query)]
+            entries = _apply_structured_filters(entries, args)
+            print(json.dumps({"results": entries, "count": len(entries), "source": "qmd"}))
+            return
+
+    # Fallback: scan all files
+    entries = get_all_entries()
+
+    # Text search fallback
     if args.search:
         term = args.search.lower()
         entries = [e for e in entries
@@ -249,9 +241,24 @@ def cmd_query(args):
                    or term in e.get("Description", "").lower()
                    or term in e.get("Attendees", "").lower()]
 
-    print(json.dumps({"results": entries, "count": len(entries)}))
+    entries = _apply_structured_filters(entries, args)
+    source = "scan-fallback" if args.search else "scan"
+    print(json.dumps({"results": entries, "count": len(entries), "source": source}))
+
+
+def _apply_structured_filters(entries, args):
+    """Apply structured frontmatter filters."""
+    if args.attendee:
+        query = args.attendee.lower()
+        entries = [e for e in entries if query in e.get("Attendees", "").lower()]
+    if args.date:
+        query = args.date
+        entries = [e for e in entries if e.get("Date", "").startswith(query)]
+    return entries
+
 
 def cmd_read(args):
+    """Read a specific meeting file."""
     filepath = os.path.join(NOTES_DIR, args.file)
     if not os.path.exists(filepath):
         print(json.dumps({"error": f"File not found: {args.file}"}))
@@ -261,16 +268,17 @@ def cmd_read(args):
     fm = parse_frontmatter(filepath)
     print(json.dumps({"file": args.file, "frontmatter": fm, "content": content}))
 
+
 def main():
     parser = argparse.ArgumentParser(description="Meeting CLI")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("refresh", help="Diff filesystem vs index, update index")
+    sub.add_parser("refresh", help="Re-embed QMD collection")
 
     q = sub.add_parser("query", help="Query meetings")
     q.add_argument("--attendee", help="Filter by attendee name")
     q.add_argument("--date", help="Filter by date prefix (YYYY, YYYY-MM, YYYY-MM-DD)")
-    q.add_argument("--search", help="Search titles and descriptions")
+    q.add_argument("--search", help="Search titles and descriptions (uses QMD when available)")
 
     r = sub.add_parser("read", help="Read a meeting file")
     r.add_argument("file", help="Relative file path")

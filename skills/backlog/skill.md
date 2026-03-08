@@ -10,6 +10,14 @@ Manage tasks: create, update, query, and get overviews.
 **CLI tool:** `python3 ~/.claude/skills/backlog/backlog_cli.py <command> [args]`
 **Config:** `~/.claude/skills/backlog/config.yaml`
 **Tasks directory:** Configured in config.yaml (default: ~/.local/share/assistant/backlog)
+**Search:** Uses [QMD](https://github.com/tobi/qmd) for hybrid semantic search when available, falls back to substring matching.
+
+## Prerequisites
+
+Install QMD for semantic search (optional but recommended):
+```bash
+npm install -g @tobilu/qmd
+```
 
 ## Notes Structure
 
@@ -22,7 +30,6 @@ Manage tasks: create, update, query, and get overviews.
       screenshot.png
   _unassigned/
     Task without project.md
-  .index.md
 ```
 
 Tasks are organized by project. Simple tasks are single files; tasks with attachments use a folder.
@@ -47,13 +54,13 @@ description: One-line summary
 
 **Body:** Freeform notes, details, or acceptance criteria.
 
-## Phase 1: Refresh Index
+## Phase 1: Refresh Search Index
 
 On every invocation, run:
 ```
 python3 ~/.claude/skills/backlog/backlog_cli.py refresh
 ```
-Returns JSON: `{added, removed, total}`. Only mention changes to the user if relevant.
+This re-embeds the QMD collection for search. Returns JSON: `{status, indexed, total}`. Only mention changes to the user if relevant.
 
 ## Phase 2: Detect Mode
 
@@ -91,7 +98,7 @@ python3 ~/.claude/skills/backlog/backlog_cli.py query --search "Cloud Migration"
 python3 ~/.claude/skills/backlog/backlog_cli.py query --due-before 2026-03-01
 python3 ~/.claude/skills/backlog/backlog_cli.py query --priority 1
 ```
-Filters can be combined. Returns `{results, count}`.
+Filters can be combined. The `--search` flag uses QMD hybrid search (semantic + BM25) when available. Returns `{results, count, source}`.
 
 **Dashboard overview:**
 ```
@@ -150,7 +157,7 @@ Auto-fills `completed_date` with today.
 
 Run `refresh` after any update.
 
-## Phase 4: Refresh Index
+## Phase 4: Refresh Search Index
 
 After any write operation (create, update, close), run:
 ```
@@ -162,7 +169,6 @@ python3 ~/.claude/skills/backlog/backlog_cli.py refresh
 | Mistake | Fix |
 |---------|-----|
 | Writing files during query mode | Query mode is read-only |
-| Reading index files directly | Use CLI commands instead |
 | Asking multiple questions at once | One question per message during create mode |
 | Not running refresh after writes | Always refresh after create/update/close |
 | Creating duplicate tasks | Search first before creating |

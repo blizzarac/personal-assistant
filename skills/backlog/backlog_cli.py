@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""CLI tool for managing the tasks index and queries."""
+"""CLI tool for managing tasks with QMD-powered search."""
 
 import argparse
 import json
 import os
-import re
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -15,6 +15,7 @@ from collections import defaultdict
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def load_config():
     cfg = {}
@@ -36,13 +37,76 @@ def load_config():
                     cfg[last_key].append(line[2:].strip())
     return cfg
 
+
 CFG = load_config()
 NOTES_DIR = os.path.expanduser(CFG["data_dir"])
-INDEX_PATH = os.path.join(NOTES_DIR, CFG["index_file"])
 UNASSIGNED_DIR = CFG.get("unassigned_dir", "_unassigned")
+COLLECTION = CFG.get("collection", "backlog")
 EXCLUDE = CFG.get("exclude", [])
 if isinstance(EXCLUDE, str):
     EXCLUDE = [EXCLUDE]
+
+# ---------------------------------------------------------------------------
+# QMD helpers
+# ---------------------------------------------------------------------------
+
+
+def qmd_available():
+    """Check if qmd is installed."""
+    return shutil.which("qmd") is not None
+
+
+def qmd_search(query_text, n=20):
+    """Run qmd query (hybrid search) and return parsed JSON results."""
+    cmd = ["qmd", "query", "-c", COLLECTION, "-n", str(n), "--json", query_text]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            return None
+        return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return None
+
+
+def qmd_embed():
+    """Re-embed the QMD collection."""
+    cmd = ["qmd", "embed"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+def qmd_ensure_collection():
+    """Ensure the QMD collection exists for the backlog data directory."""
+    # Check if collection already exists
+    try:
+        result = subprocess.run(
+            ["qmd", "collection", "list"], capture_output=True, text=True, timeout=10
+        )
+        if COLLECTION in result.stdout:
+            return True
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+    # Add collection
+    try:
+        result = subprocess.run(
+            ["qmd", "collection", "add", NOTES_DIR, "--name", COLLECTION],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            # Add context description
+            subprocess.run(
+                ["qmd", "context", "add", f"qmd://{COLLECTION}",
+                 "Task backlog with project-based organization. Each task has YAML frontmatter with status, priority, due_date, and project fields."],
+                capture_output=True, text=True, timeout=10,
+            )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
 
 # ---------------------------------------------------------------------------
 # Frontmatter parsing
@@ -145,75 +209,7 @@ def update_frontmatter_in_file(filepath, updates):
 
 
 # ---------------------------------------------------------------------------
-# Markdown table I/O
-# ---------------------------------------------------------------------------
-
-ENTRY_HEADERS = ["Title", "File", "Project", "Status", "Priority", "Due Date", "Created", "Completed", "Description"]
-STATS_HEADERS = ["Project", "Open", "In Progress", "Blocked", "Done", "Total"]
-
-def read_index_table(filepath, start_marker):
-    """Read a markdown table section into list of dicts."""
-    if not os.path.exists(filepath):
-        return []
-    rows = []
-    with open(filepath, "r", encoding="utf-8") as f:
-        in_section = False
-        in_table = False
-        headers = []
-        for line in f:
-            line = line.strip()
-            if line.startswith(start_marker):
-                in_section = True
-                continue
-            if in_section and line.startswith("| ") and not in_table:
-                headers = [h.strip() for h in line.strip("|").split("|")]
-                in_table = True
-                continue
-            if in_table and (line.startswith("|---") or line.startswith("| ---")):
-                continue
-            if in_table and line.startswith("|"):
-                vals = [v.strip() for v in line.strip("|").split("|")]
-                row = {}
-                for i, h in enumerate(headers):
-                    row[h] = vals[i] if i < len(vals) else ""
-                rows.append(row)
-            elif in_table and not line.startswith("|"):
-                break
-    return rows
-
-def write_index(entries):
-    """Write the full tasks index file with Entries and Project Stats tables."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    lines = [
-        "# Tasks Index",
-        f"Last updated: {today}",
-        "",
-        "## Entries",
-        "",
-        "| " + " | ".join(ENTRY_HEADERS) + " |",
-        "| " + " | ".join(["------"] * len(ENTRY_HEADERS)) + " |",
-    ]
-    for row in sorted(entries, key=lambda r: (r.get("Project", ""), r.get("Title", ""))):
-        vals = [row.get(h, "") for h in ENTRY_HEADERS]
-        lines.append("| " + " | ".join(vals) + " |")
-
-    lines.append("")
-
-    stats = compute_project_stats(entries)
-    lines.append("## Project Stats")
-    lines.append("")
-    lines.append("| " + " | ".join(STATS_HEADERS) + " |")
-    lines.append("| " + " | ".join(["------"] * len(STATS_HEADERS)) + " |")
-    for row in sorted(stats, key=lambda r: r.get("Project", "")):
-        vals = [row.get(h, "") for h in STATS_HEADERS]
-        lines.append("| " + " | ".join(vals) + " |")
-    lines.append("")
-
-    with open(INDEX_PATH, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-
-# ---------------------------------------------------------------------------
-# File discovery
+# File discovery (replaces index-based lookups)
 # ---------------------------------------------------------------------------
 
 def discover_files():
@@ -252,22 +248,19 @@ def discover_files():
                     files[rel_path] = inner_md
     return files
 
+
 def entry_from_file(rel_path, abs_path):
-    """Create an index entry dict from a task file."""
+    """Create an entry dict from a task file."""
     fm = parse_frontmatter(abs_path)
     filename = os.path.basename(rel_path)
 
-    # Title from filename without .md extension
     title = filename.replace(".md", "")
 
-    # Project: from frontmatter or inferred from directory
     project = fm.get("project", "")
     if not project:
-        # First path component is the project directory
         parts = rel_path.split("/")
         project = parts[0] if parts else ""
 
-    # Status: support new 'status' field and old 'completed: true/false' for backwards compat
     status = fm.get("status", "")
     if not status:
         completed = fm.get("completed", "")
@@ -275,8 +268,6 @@ def entry_from_file(rel_path, abs_path):
             completed = completed.lower().strip()
         if completed == "true":
             status = "done"
-        elif completed == "false":
-            status = "open"
         else:
             status = "open"
 
@@ -296,7 +287,6 @@ def entry_from_file(rel_path, abs_path):
     if not completed_date:
         completed_date = ""
 
-    # Description: from frontmatter, or first 80 chars of body
     description = fm.get("description", "")
     if not description:
         description = fm.get("outcome", "")
@@ -325,6 +315,19 @@ def entry_from_file(rel_path, abs_path):
         "Description": str(description),
     }
 
+
+def get_all_entries():
+    """Scan all task files and return entry dicts."""
+    files = discover_files()
+    entries = []
+    for rel_path, abs_path in sorted(files.items()):
+        try:
+            entries.append(entry_from_file(rel_path, abs_path))
+        except Exception as e:
+            sys.stderr.write(f"Error parsing {rel_path}: {e}\n")
+    return entries
+
+
 # ---------------------------------------------------------------------------
 # Project stats
 # ---------------------------------------------------------------------------
@@ -343,7 +346,6 @@ def compute_project_stats(entries):
         elif status in ("blocked", "waiting"):
             projects[project]["blocked"] += 1
         else:
-            # open, or any custom status text (e.g. "with Malte") counts as open
             projects[project]["open"] += 1
 
     stats = []
@@ -359,43 +361,70 @@ def compute_project_stats(entries):
         })
     return stats
 
+
+STATS_HEADERS = ["Project", "Open", "In Progress", "Blocked", "Done", "Total"]
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
 def cmd_refresh(args):
-    """Diff filesystem vs index, add new files, remove deleted files, rewrite index."""
-    disk_files = discover_files()
-    entries = read_index_table(INDEX_PATH, "## Entries")
-    indexed_files = {r["File"] for r in entries}
-    disk_set = set(disk_files.keys())
+    """Update QMD index by re-embedding the collection."""
+    if not qmd_available():
+        print(json.dumps({"error": "qmd is not installed. Install with: npm install -g @tobilu/qmd"}))
+        sys.exit(1)
 
-    added = disk_set - indexed_files
-    removed = indexed_files - disk_set
+    qmd_ensure_collection()
+    success = qmd_embed()
+    if success:
+        total = len(discover_files())
+        print(json.dumps({"status": "ok", "indexed": True, "total": total}))
+    else:
+        print(json.dumps({"status": "error", "message": "qmd embed failed"}))
+        sys.exit(1)
 
-    if not added and not removed:
-        print(json.dumps({"added": [], "removed": [], "total": len(entries)}))
-        return
-
-    if removed:
-        entries = [e for e in entries if e["File"] not in removed]
-
-    added_list = []
-    for rel_path in sorted(added):
-        try:
-            entry = entry_from_file(rel_path, disk_files[rel_path])
-            entries.append(entry)
-            added_list.append(rel_path)
-        except Exception as e:
-            sys.stderr.write(f"Error parsing {rel_path}: {e}\n")
-
-    write_index(entries)
-    print(json.dumps({"added": added_list, "removed": sorted(removed), "total": len(entries)}))
 
 def cmd_query(args):
-    """Filter tasks from the index. Supports combining multiple filters."""
-    entries = read_index_table(INDEX_PATH, "## Entries")
+    """Filter tasks. Uses QMD for text search, direct file scan for structured filters."""
+    # Text search via QMD
+    if args.search and qmd_available():
+        qmd_results = qmd_search(args.search)
+        if qmd_results is not None:
+            # Map QMD results back to entries with frontmatter
+            files = discover_files()
+            entries = []
+            seen = set()
+            for result in qmd_results:
+                # QMD returns paths relative to collection root
+                path = result.get("path", "")
+                if path in files and path not in seen:
+                    seen.add(path)
+                    entry = entry_from_file(path, files[path])
+                    entry["_score"] = result.get("score", 0)
+                    entries.append(entry)
 
+            # Apply structured filters on top of search results
+            entries = _apply_structured_filters(entries, args)
+            print(json.dumps({"results": entries, "count": len(entries), "source": "qmd"}))
+            return
+
+    # Fallback: scan all files and filter
+    entries = get_all_entries()
+
+    # Text search fallback (substring match) if qmd unavailable
+    if args.search:
+        term = args.search.lower()
+        entries = [e for e in entries if term in e.get("Title", "").lower() or term in e.get("Description", "").lower()]
+
+    entries = _apply_structured_filters(entries, args)
+    source = "scan"
+    if args.search:
+        source = "scan-fallback"
+    print(json.dumps({"results": entries, "count": len(entries), "source": source}))
+
+
+def _apply_structured_filters(entries, args):
+    """Apply structured frontmatter filters to a list of entries."""
     if args.status:
         status = args.status.lower()
         entries = [e for e in entries if e.get("Status", "").lower() == status]
@@ -405,15 +434,12 @@ def cmd_query(args):
     if args.priority:
         priority = args.priority
         entries = [e for e in entries if e.get("Priority", "") == priority]
-    if args.search:
-        term = args.search.lower()
-        entries = [e for e in entries if term in e.get("Title", "").lower() or term in e.get("Description", "").lower()]
     if args.due_before:
         entries = [e for e in entries if e.get("Due Date", "") and e.get("Due Date", "") < args.due_before]
     if args.due_after:
         entries = [e for e in entries if e.get("Due Date", "") and e.get("Due Date", "") > args.due_after]
+    return entries
 
-    print(json.dumps({"results": entries, "count": len(entries)}))
 
 def cmd_read(args):
     """Read a specific task file by relative path."""
@@ -442,9 +468,10 @@ def cmd_read(args):
     fm = parse_frontmatter(filepath)
     print(json.dumps({"file": args.file, "frontmatter": fm, "content": content}))
 
+
 def cmd_stats(args):
     """Show task statistics. Optional --project filter."""
-    entries = read_index_table(INDEX_PATH, "## Entries")
+    entries = get_all_entries()
 
     if args.project:
         project = args.project.lower()
@@ -456,6 +483,7 @@ def cmd_stats(args):
         "total_entries": len(entries),
         "project_stats": stats,
     }))
+
 
 def cmd_create(args):
     """Create a new task file with frontmatter."""
@@ -543,9 +571,10 @@ def cmd_close(args):
 
 def cmd_list_projects(args):
     """List all project folders with task counts per status."""
-    stats_rows = read_index_table(INDEX_PATH, "## Project Stats")
+    entries = get_all_entries()
+    stats = compute_project_stats(entries)
     projects = []
-    for row in stats_rows:
+    for row in stats:
         projects.append({
             "project": row.get("Project", ""),
             "open": int(row.get("Open", "0") or "0"),
@@ -559,7 +588,7 @@ def cmd_list_projects(args):
 
 def cmd_dashboard(args):
     """Overview output grouped by project, sorted by priority."""
-    entries = read_index_table(INDEX_PATH, "## Entries")
+    entries = get_all_entries()
     today = datetime.now().date()
     soon_cutoff = today + timedelta(days=7)
 
@@ -663,9 +692,6 @@ def cmd_migrate(args):
         print(json.dumps({"error": f"Tasks directory not found: {NOTES_DIR}"}))
         return
 
-    # Collect candidates: (source_path, is_folder, md_filepath)
-    # source_path = what to move (file or folder)
-    # md_filepath  = the .md file to parse/update frontmatter in
     candidates = []
 
     for item in sorted(os.listdir(NOTES_DIR)):
@@ -675,13 +701,9 @@ def cmd_migrate(args):
             continue
         item_path = os.path.join(NOTES_DIR, item)
 
-        # Case 1: simple .md file in root
         if os.path.isfile(item_path) and item.endswith(".md"):
             candidates.append((item_path, False, item_path))
-
-        # Case 2: folder-style task in root
         elif os.path.isdir(item_path):
-            # Look for any .md file inside that has the 'tasks' tag
             found_md = None
             try:
                 for inner in os.listdir(item_path):
@@ -701,24 +723,18 @@ def cmd_migrate(args):
                 continue
 
             if found_md:
-                # Check if this folder IS already a project subfolder
-                # (i.e. it contains subfolders that are tasks, not a task itself)
                 fm = parse_frontmatter(found_md)
                 project = fm.get("project", "")
                 if project and project == item:
-                    # Already in a project subfolder (project == folder name), skip
                     skipped.append({"item": item, "reason": "already a project subfolder"})
                     continue
                 candidates.append((item_path, True, found_md))
 
-    # Process each candidate
     for source_path, is_folder, md_filepath in candidates:
         item_name = os.path.basename(source_path)
         try:
-            # Parse frontmatter
             fm = parse_frontmatter(md_filepath)
 
-            # Read full file content to preserve body
             with open(md_filepath, "r", encoding="utf-8") as f:
                 content = f.read()
             body = ""
@@ -731,11 +747,9 @@ def cmd_migrate(args):
             else:
                 body = content
 
-            # Get file modification time for date fields
             mtime = os.path.getmtime(md_filepath)
             mtime_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
 
-            # Convert completed -> status
             completed_val = fm.get("completed", "")
             if isinstance(completed_val, str):
                 completed_val = completed_val.lower().strip()
@@ -748,20 +762,16 @@ def cmd_migrate(args):
             elif "status" not in fm:
                 fm["status"] = "open"
 
-            # Remove old completed field
             if "completed" in fm:
                 del fm["completed"]
 
-            # Add created_date from mtime if not present
             if not fm.get("created_date"):
                 fm["created_date"] = mtime_date
 
-            # Add missing fields as empty strings
             for field in ("due_date", "description", "completed_date"):
                 if field not in fm:
                     fm[field] = ""
 
-            # Ensure tags contains 'tasks'
             tags = fm.get("tags", "")
             if isinstance(tags, str):
                 if tags:
@@ -772,14 +782,12 @@ def cmd_migrate(args):
                 tags.append("tasks")
             fm["tags"] = tags
 
-            # Determine target directory
             project = fm.get("project", "")
             if not project:
                 project = UNASSIGNED_DIR
             target_dir = os.path.join(NOTES_DIR, project)
             target_path = os.path.join(target_dir, item_name)
 
-            # Conflict check
             if os.path.exists(target_path):
                 skipped.append({"item": item_name, "reason": f"target already exists: {target_path}"})
                 continue
@@ -794,16 +802,10 @@ def cmd_migrate(args):
                     "is_folder": is_folder,
                 })
             else:
-                # Update frontmatter in the file before moving
                 write_frontmatter(md_filepath, fm, body)
-
-                # Create target directory if needed
                 os.makedirs(target_dir, exist_ok=True)
-
-                # Move the file or folder
                 shutil.move(source_path, target_path)
 
-                # Also move .bak file if it exists (for simple .md files)
                 if not is_folder:
                     bak_path = source_path + ".bak"
                     if os.path.exists(bak_path):
@@ -836,16 +838,16 @@ def cmd_migrate(args):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Task CLI")
+    parser = argparse.ArgumentParser(description="Backlog CLI")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("refresh", help="Diff filesystem vs index, update index")
+    sub.add_parser("refresh", help="Re-embed QMD collection for search")
 
     q = sub.add_parser("query", help="Query and filter tasks")
     q.add_argument("--status", help="Filter by status (open/in-progress/done/blocked)")
     q.add_argument("--project", help="Filter by project name (case-insensitive partial match)")
     q.add_argument("--priority", help="Filter by exact priority value")
-    q.add_argument("--search", help="Search titles and descriptions (case-insensitive)")
+    q.add_argument("--search", help="Search titles and descriptions (uses QMD when available)")
     q.add_argument("--due-before", help="Tasks due before date (YYYY-MM-DD)")
     q.add_argument("--due-after", help="Tasks due after date (YYYY-MM-DD)")
 

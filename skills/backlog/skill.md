@@ -5,169 +5,59 @@ description: Use when the user wants to create, update, query, or manage tasks. 
 
 # Backlog
 
-Manage tasks: create, update, query, and get overviews.
+**CLI:** `python3 ~/.claude/skills/backlog/backlog_cli.py`
+**Data:** `~/.local/share/assistant/backlog/<Project>/<Task>.md`
+**QMD collection:** `backlog`
 
-**CLI tool:** `python3 ~/.claude/skills/backlog/backlog_cli.py <command> [args]`
-**Config:** `~/.claude/skills/backlog/config.yaml`
-**Tasks directory:** Configured in config.yaml (default: ~/.local/share/assistant/backlog)
-**Search:** Uses [QMD](https://github.com/tobi/qmd) collection `backlog` for semantic search.
+Tasks live in project subfolders. Simple tasks are single `.md` files; tasks with attachments use a folder (`Task/Task.md`).
 
-## Notes Structure
+**Frontmatter:** `tags: [tasks]`, `status: open|in-progress|done|blocked`, `project`, `priority`, `due_date`, `created_date`, `completed_date`, `description`
 
-```
-<data_dir>/
-  Project/
-    Task Name.md                    # simple task
-    Complex Task/                   # folder-style task
-      Complex Task.md
-      screenshot.png
-  _unassigned/
-    Task without project.md
-```
+## Detect Mode
 
-Tasks are organized by project. Simple tasks are single files; tasks with attachments use a folder.
+- **Query mode** — "Open tasks for MyProject", "Task dashboard", "What's due this week?"
+- **Create mode** — "Create a task for...", "I need to..."
+- **Update mode** — "Mark X as done", "Change priority of X"
 
-**Frontmatter:**
-```yaml
----
-links:
-tags:
-  - tasks
-status: open          # open | in-progress | done | blocked
-inform:
-outcome:
-project: MyProject
-priority:
-due_date:
-created_date: YYYY-MM-DD
-completed_date:
-description: One-line summary
----
-```
+## Query Mode
 
-**Body:** Freeform notes, details, or acceptance criteria.
+Query mode is read-only — never write files.
 
-## Phase 1: Detect Mode
+Search: `qmd query -c backlog --json "Cloud Migration"`
+Filters: `backlog_cli.py query --status open --project MyProject --due-before 2026-03-01`
+Dashboard: `backlog_cli.py dashboard`
+Stats: `backlog_cli.py stats --project MyProject`
+Projects: `backlog_cli.py list-projects`
+Read: `backlog_cli.py read "MyProject/Task.md"` or use the Read tool directly.
 
-**Query mode** — The user is asking about existing tasks:
-- "Show me open tasks for MyProject"
-- "What's my highest priority task?"
-- "What tasks are due this week?"
-- "How many tasks did I close this month?"
-- "Task dashboard"
+## Create Mode
 
-**Create mode** — The user wants to create a new task:
-- "Create a task for..."
-- "I need to..."
-- "Add a task..."
-
-**Update mode** — The user wants to modify an existing task:
-- "Mark X as done"
-- "Change priority of X to 5"
-- "Block the Database Migration task"
-- "Close the Cloud Migration task"
-
-If ambiguous, ask: "Do you want to create a new task, update an existing one, or search your tasks?"
-
-## Phase 2a: Query Mode (Read-Only)
-
-**Never write files during query mode.**
-
-**Search tasks with QMD:**
-```bash
-qmd query -c backlog --json "Cloud Migration"
-qmd query -c backlog --json "API documentation"
-```
-
-**Structured queries:** Use the CLI for field-specific filtering:
-```
-python3 ~/.claude/skills/backlog/backlog_cli.py query --status open
-python3 ~/.claude/skills/backlog/backlog_cli.py query --status open --project MyProject
-python3 ~/.claude/skills/backlog/backlog_cli.py query --due-before 2026-03-01
-python3 ~/.claude/skills/backlog/backlog_cli.py query --priority 1
-```
-Filters can be combined. Returns `{results, count}`.
-
-**Dashboard overview:**
-```
-python3 ~/.claude/skills/backlog/backlog_cli.py dashboard
-```
-Returns projects with counts, top tasks, overdue, due soon, and summary.
-
-**Statistics:**
-```
-python3 ~/.claude/skills/backlog/backlog_cli.py stats
-python3 ~/.claude/skills/backlog/backlog_cli.py stats --project MyProject
-```
-
-**List projects:**
-```
-python3 ~/.claude/skills/backlog/backlog_cli.py list-projects
-```
-
-**Read a specific task:**
-```
-python3 ~/.claude/skills/backlog/backlog_cli.py read "MyProject/API Integration.md"
-```
-
-Or read the file directly with the Read tool.
-
-Present results as markdown tables or narrative depending on the question.
-
-## Phase 2b: Create Mode
-
-Extract title, project, priority, due date from user input. Ask clarifying questions **one at a time** if needed.
+Extract title, project, priority, due date. Ask clarifying questions **one at a time**.
 
 ```
-python3 ~/.claude/skills/backlog/backlog_cli.py create --title "Task Name" --project MyProject --priority 5 --due-date 2026-03-01 --description "One-line summary"
+backlog_cli.py create --title "Task Name" --project MyProject --priority 5 --due-date 2026-03-01 --description "Summary"
 ```
 
-If user mentions attachments or supporting files, create a folder-style task manually:
-1. Create directory: `tasks/<project>/<Task Name>/`
-2. Create `tasks/<project>/<Task Name>/<Task Name>.md` with frontmatter
-
+For tasks with attachments, create `<Project>/<Task>/<Task>.md` manually.
 Run `qmd embed` after creation.
 
-## Phase 2c: Update Mode
+## Update Mode
 
-Search for the task first. If multiple matches, confirm which one with the user.
+Search first. If multiple matches, confirm with user.
 
-**Update fields:**
 ```
-python3 ~/.claude/skills/backlog/backlog_cli.py update "MyProject/Task Name.md" --status in-progress
-python3 ~/.claude/skills/backlog/backlog_cli.py update "MyProject/Task Name.md" --priority 3
-python3 ~/.claude/skills/backlog/backlog_cli.py update "MyProject/Task Name.md" --due-date 2026-04-01
+backlog_cli.py update "MyProject/Task.md" --status in-progress --priority 3
+backlog_cli.py close "MyProject/Task.md"   # sets status=done + completed_date=today
 ```
-
-**Mark as done (shortcut):**
-```
-python3 ~/.claude/skills/backlog/backlog_cli.py close "MyProject/Task Name.md"
-```
-Auto-fills `completed_date` with today.
 
 Run `qmd embed` after any update.
 
 ## Migration
 
-If old-format task files exist (flat `.md` files in the root of the tasks directory instead of project subfolders), use the migrate command to move them:
-
-```bash
-# Preview what would change
-python3 ~/.claude/skills/backlog/backlog_cli.py migrate --dry-run
-
-# Run the migration
-python3 ~/.claude/skills/backlog/backlog_cli.py migrate
+Move old flat-format task files into project subfolders:
+```
+backlog_cli.py migrate --dry-run   # preview
+backlog_cli.py migrate             # execute
 ```
 
-Migration handles: moving files into `<project>/` subfolders, converting old `completed: true/false` to `status: open/done`, and adding missing frontmatter fields.
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---------|-----|
-| Writing files during query mode | Query mode is read-only |
-| Asking multiple questions at once | One question per message during create mode |
-| Not running `qmd embed` after writes | Always re-embed after create/update/close |
-| Creating duplicate tasks | Search first before creating |
-| Updating wrong task on ambiguous match | Always confirm with user if multiple matches |
-| Inventing task content | Only use what the user provided |
+**Never** invent task content. **Always** search before creating to avoid duplicates.

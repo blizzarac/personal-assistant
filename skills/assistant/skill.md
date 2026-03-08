@@ -11,150 +11,53 @@ description: >
 
 # Assistant
 
-Coordinate across multiple skills to answer cross-cutting questions and handle multi-domain requests.
+Coordinate across skills for cross-cutting queries and multi-domain writes.
 
-## When to Use This Skill
-
-- User asks a temporal/summary question: "what happened last week?", "catch me up", "summary of today"
-- User request touches 2+ skill domains: "I had a meeting with Alice and need to create a follow-up task"
-- User asks about a person across domains: "what's going on with Alice?"
-
-## When NOT to Use This Skill
-
-- Request clearly maps to a single skill ("create a task", "write a journal entry")
-- Those go directly to their respective skills
+**Only activate** when the request touches 2+ skills or asks for a temporal summary. Single-domain requests ("create a task") go directly to their skill.
 
 ## Search
 
-All skills are indexed as [QMD](https://github.com/tobi/qmd) collections. Use QMD for search:
+All skills use [QMD](https://github.com/tobi/qmd) collections:
 
-**Search across all skills at once:**
 ```bash
-qmd query --json "Alice"
+qmd query --json "Alice"                              # search all collections
+qmd query -c journal -c meeting --json "project update" # specific collections
 ```
 
-**Search specific collections:**
+For structured/date queries, run CLIs in parallel:
 ```bash
-qmd query -c journal -c meeting --json "project update"
-qmd query -c backlog --json "Cloud Migration"
+journal_cli.py query --date YYYY-MM
+meeting_cli.py query --date YYYY-MM --attendee NAME
+backlog_cli.py query --status open --due-before YYYY-MM-DD
+backlog_cli.py dashboard
 ```
 
-Results include `file` paths prefixed with `qmd://<collection>/` so you can tell which skill each result belongs to.
+CLIs live at `~/.claude/skills/<skill>/<skill>_cli.py`.
 
-## Skill Registry
+## Query Mode
 
-| Skill | QMD Collection | CLI Tool | Structured Query |
-|-------|---------------|----------|-----------------|
-| journal | `journal` | `python3 ~/.claude/skills/journal/journal_cli.py` | `query --date YYYY-MM-DD --tag TAG` |
-| backlog | `backlog` | `python3 ~/.claude/skills/backlog/backlog_cli.py` | `query --status STATUS --project PROJECT`, `dashboard`, `stats` |
-| meeting | `meeting` | `python3 ~/.claude/skills/meeting/meeting_cli.py` | `query --date YYYY-MM-DD --attendee NAME` |
-| person | `person` | `python3 ~/.claude/skills/person/person_cli.py` | `search --name NAME --tag TAG`, `birthdays --month N` |
+Never write files. Choose strategy:
+- **Text/topic/person** → QMD across collections
+- **Date-based** → CLIs in parallel
+- **Overview** → `backlog_cli.py dashboard`
 
-Use QMD for text/semantic search. Use CLIs for structured field-based queries (date ranges, status filters, attendee lookups, birthday months).
+Synthesize results:
+- Temporal → chronological timeline by day
+- Person → group by interaction type
+- Work → narrative of journal + tasks
 
-## Phase 1: Detect Mode
+Omit skills with no results. Never invent information.
 
-### Query Mode (read-only)
+## Write Mode
 
-The user is asking about existing data across skills:
-- "What happened last week?"
-- "Catch me up"
-- "Summary of today"
-- "What's going on with Alice?"
-- "What have I been working on?"
+When the user describes something spanning multiple skills:
 
-### Write Mode (multi-skill creation/update)
+1. **Parse intent** → map to skills (meeting, person, backlog, journal)
+2. **Confirm plan** before executing:
+   > I'll do: 1. [Skill]: [action] 2. [Skill]: [action]. Does that look right?
+3. **Invoke skills sequentially** via Skill tool: person → meeting → journal → backlog
+4. **Report** what was created
 
-The user describes something that requires creating/updating entries in multiple skills:
-- "I met Alice yesterday, we discussed the Cloud Migration project and she'll create a proposal by Friday"
-- "Had a meeting with the team and need to reschedule the follow-up"
+Sequential because: meetings need resolved names, tasks may reference meetings, journal may already be created by meeting skill.
 
-If ambiguous, ask: "Are you asking about existing data, or do you want me to create/update entries?"
-
-## Phase 2a: Cross-Skill Query Workflow
-
-**Never write files during query mode.**
-
-### Step 1: Choose Search Strategy
-
-**For text/topic/person queries** — use QMD across collections:
-```bash
-# Search everything at once
-qmd query --json "Alice"
-
-# Or target specific collections
-qmd query -c meeting -c backlog --json "Cloud Migration"
-```
-
-**For structured/date queries** — use CLIs in parallel:
-```bash
-python3 ~/.claude/skills/journal/journal_cli.py query --date YYYY-MM
-python3 ~/.claude/skills/meeting/meeting_cli.py query --date YYYY-MM
-python3 ~/.claude/skills/backlog/backlog_cli.py query --due-after YYYY-MM-DD --due-before YYYY-MM-DD
-```
-
-**For dashboard/overview** — use backlog CLI:
-```bash
-python3 ~/.claude/skills/backlog/backlog_cli.py dashboard
-```
-
-### Step 2: Synthesize Results
-
-Combine results based on query type:
-- **Temporal queries** -- present as a chronological timeline, grouped by day
-- **Person queries** -- group by interaction type (meetings, backlog items mentioning them)
-- **Work queries** -- narrative combining journal entries and task activity
-
-**Rules:**
-- Never invent information not in search output
-- If a skill returns no results, omit it from the response (don't say "no meetings found")
-- If ALL skills return no results, say so clearly
-
-## Phase 2b: Multi-Skill Write Workflow
-
-### Step 1: Parse Intent
-
-Extract all actionable items and map to skills:
-- Meeting details -> **meeting** skill
-- People mentioned -> **person** skill (for resolution)
-- Follow-up actions/deadlines -> **backlog** skill
-- Daily reflection -> **journal** skill
-
-### Step 2: Confirm Plan
-
-**Always** present the plan before executing. Format:
-
-> I'll do the following:
-> 1. [Skill]: [what will be created/updated]
-> 2. [Skill]: [what will be created/updated]
->
-> Does that look right?
-
-Wait for user confirmation. Adjust if they correct anything.
-
-### Step 3: Invoke Skills Sequentially via Skill Tool
-
-After confirmation, invoke each skill using the Skill tool in this order:
-1. **person** -- resolve names first (other skills may need the correct person reference)
-2. **meeting** -- create meeting notes (also handles related journal entry)
-3. **journal** -- only if a standalone journal entry is needed (not already covered by meeting)
-4. **backlog** -- create follow-up tasks
-
-Sequential because:
-- Meeting needs resolved person names
-- Tasks may reference meeting content
-- Journal may be created by meeting skill already
-
-### Step 4: Summary
-
-Report what was created with file paths.
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---------|-----|
-| Activating for single-skill requests | Only activate when multiple skills are needed |
-| Writing files directly | Always delegate writes to individual skills via Skill tool |
-| Skipping the confirmation step for writes | Always confirm the plan before invoking skills |
-| Inventing information not in search output | Only present what QMD/CLIs return |
-| Running write skills in parallel | Run sequentially -- writes may depend on each other |
+**Never** write files directly — delegate to individual skills. **Never** skip confirmation for writes.

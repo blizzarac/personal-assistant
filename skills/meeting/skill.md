@@ -5,148 +5,34 @@ description: Use when the user wants to create meeting notes, search past meetin
 
 # Meeting Notes
 
-Create structured meeting notes and link them to the journal.
+**CLI:** `python3 ~/.claude/skills/meeting/meeting_cli.py`
+**Data:** `~/.local/share/assistant/meeting/YYYY/<Title> (YYYY-MM-DD).md`
+**QMD collection:** `meeting`
 
-**CLI tool:** `python3 ~/.claude/skills/meeting/meeting_cli.py <command> [args]`
-**Config:** `~/.claude/skills/meeting/config.yaml`
-**Meetings directory:** Configured in config.yaml (default: ~/.local/share/assistant/meeting/YYYY/)
-**Search:** Uses [QMD](https://github.com/tobi/qmd) collection `meeting` for semantic search.
+**Frontmatter:** `tags: [meetings]`, `date`, `attendees: ["[[Name]]"]`, `scheduling: Ad hoc`
+**Body sections** (only if content): `## Topics`, `## Decisions`, `## Action Items`
 
-## Notes Structure
+## Detect Mode
 
-```
-<data_dir>/
-  YYYY/
-    Title (YYYY-MM-DD).md
-    Title (YYYY-MM-DD).md
-    ...
-```
+- **Create mode** — "Meeting with Alice about X", "I had a meeting today..."
+- **Query mode** — "What meetings did I have with Alice?", "Meetings about X"
 
-Meetings are organized by year. Each meeting is a single markdown file named `<Title> (YYYY-MM-DD).md`.
+## Query Mode
 
-**Frontmatter:**
-```yaml
----
-tags:
-  - meetings
-date: YYYY-MM-DD
-links:
-attendees:
-  - "[[Person Name]]"
-scheduling: Ad hoc
----
-```
+Query mode is read-only — never write files.
 
-**Body sections** (only include sections with content):
-- `## Topics` — what was discussed
-- `## Decisions` — what was decided
-- `## Action Items` — what needs to happen next, with owners
+Search: `qmd query -c meeting --json "Cloud Migration"`
+Filters: `meeting_cli.py query --date "2025-09" --attendee "Alice"`
+Read: `meeting_cli.py read "2025/Team Sync (2025-09-11).md"` or use the Read tool directly.
 
-## Phase 1: Detect Mode
+## Create Mode
 
-**Create mode** — The user is describing a meeting:
-- "Meeting with Alice about Cloud Migration"
-- "I had a meeting today..."
-- Raw notes pasted with meeting context
+1. Extract title, date (default: today), attendees, scheduling from user input
+2. Resolve attendees via `person_cli.py search --name "Alice"` → format as `"[[Firstname Lastname]]"`
+3. Structure raw notes into Topics/Decisions/Action Items sections
+4. Create `YYYY/<Title> (YYYY-MM-DD).md` with frontmatter + body
+5. Run `qmd embed`
+6. Create or append journal entry for the same date (check journal data dir from config.yaml `journal_data_dir`)
 
-**Query mode** — The user is asking about past meetings:
-- "What meetings did I have with Alice?"
-- "Meetings about Cloud Migration"
-- "Summarize meetings from October"
-
-If ambiguous, ask: "Do you want to create meeting notes, or search past meetings?"
-
-## Phase 2a: Query Mode (Read-Only)
-
-**Never write files during query mode.**
-
-**Search meetings with QMD:**
-```bash
-qmd query -c meeting --json "Cloud Migration"
-qmd query -c meeting --json "Alice"
-```
-
-**Date-based queries:** Use the CLI for structured date filtering:
-```
-python3 ~/.claude/skills/meeting/meeting_cli.py query --date "2025-09"
-python3 ~/.claude/skills/meeting/meeting_cli.py query --attendee "Alice"
-```
-
-**Read a specific meeting for detail:**
-```
-python3 ~/.claude/skills/meeting/meeting_cli.py read "2025/Team Sync (2025-09-11).md"
-```
-
-Or read the file directly with the Read tool.
-
-Present results as markdown table or narrative depending on query type.
-
-## Phase 2b: Create Mode
-
-### Step 1: Gather input
-Extract from user's notes: title, date (default: today), attendees, scheduling, links.
-If title is not obvious, ask: "What should I call this meeting?"
-
-### Step 2: Resolve attendees
-Use person CLI to find correct names:
-```
-python3 ~/.claude/skills/person/person_cli.py search --name "Alice"
-```
-Format as `"[[Firstname Lastname]]"` in the attendees array.
-
-### Step 3: Structure content
-Organize raw notes into sections (only include sections with content):
-- **Topics** — what was discussed
-- **Decisions** — what was decided
-- **Action Items** — what needs to happen next
-
-### Step 4: Create meeting file
-
-**Directory:** YYYY/ — create if it doesn't exist.
-**Filename:** `<Title> (YYYY-MM-DD).md`
-
-**Format:**
-```markdown
----
-tags:
-  - meetings
-date: YYYY-MM-DD
-links:
-attendees:
-  - "[[Person Name]]"
-scheduling: Ad hoc
----
-
-## Topics
-- [structured from raw notes]
-
-## Decisions
-- [if any]
-
-## Action Items
-- [if any, with owners]
-```
-
-### Step 5: Update search index
-
-Run:
-```
-qmd embed
-```
-
-### Step 6: Create or append journal entry
-
-Follow the journal skill pattern for the same date:
-1. Check if YYYY/YYYY-MM-DD-DayOfWeek-Journal.md exists in the journal data directory (configured in meeting's config.yaml as journal_data_dir)
-2. If exists — append meeting summary under `## Meetings` section
-3. If not — create a minimal journal entry with the meeting link
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---------|-----|
-| Writing files during query mode | Query mode is read-only |
-| Not resolving attendee names | Always check the people directory via person CLI |
-| Inventing meeting content | Only structure what the user provided |
-| Wrong filename format | Always use `<Title> (YYYY-MM-DD).md` |
-| Forgetting journal entry | Every meeting must also create/update a journal entry |
+**Never** invent meeting content — only structure what the user provided.
+**Always** resolve attendee names against the people directory.

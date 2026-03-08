@@ -1,6 +1,4 @@
 data_dir: ~/.local/share/assistant/backlog
 collection: backlog
 unassigned_dir: _unassigned
-exclude:
-  - .index.md
 user_name: User

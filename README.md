@@ -16,6 +16,7 @@ A Claude Code skills package that turns Claude into a personal assistant — jou
    # or
    ./install.sh              # macOS / Linux only
    ```
+   This symlinks the skills, creates data directories, and registers [QMD](https://github.com/tobi/qmd) collections for semantic search (if qmd is installed).
 
 3. Start using it in Claude Code:
    - "Journal entry — had a great day hiking"
@@ -35,7 +36,7 @@ A Claude Code skills package that turns Claude into a personal assistant — jou
 
 ## How It Works
 
-- **Reads:** The assistant queries sub-skill CLIs in parallel for fast lookups
+- **Reads:** The assistant uses [QMD](https://github.com/tobi/qmd) for semantic search across all skills, plus CLIs for structured queries
 - **Writes:** The assistant delegates to individual skills via Claude Code's Skill tool for structured creation
 - **Data:** Each skill stores markdown files in its own directory
 
@@ -163,9 +164,9 @@ To add a new skill to the assistant's registry:
 
 1. Create your skill in `~/.claude/skills/<skill-name>/` with a `skill.md` and optional CLI
 2. Add a row to the Skill Registry table in `~/.claude/skills/assistant/skill.md`
-3. Add query patterns to the Request Type mapping table
+3. Register a [QMD](https://github.com/tobi/qmd) collection for your data directory (if searchable)
 
-Your CLI should follow the convention: `<skill-name>_cli.py` with `refresh`, `query`, and `read` commands that output JSON.
+Your CLI should follow the convention: `<skill-name>_cli.py` with `refresh`, `query`/`search`, and `read` commands that output JSON. The `refresh` command runs `qmd embed` to re-index; queries scan files directly for structured filters and use QMD for text search.
 
 ## Uninstalling
 

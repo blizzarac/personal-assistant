@@ -1,5 +1,3 @@
 data_dir: ~/.local/share/assistant/person
-index_file: .index.md
-exclude:
-  - .index.md
+collection: person
 user_name: User

@@ -7,11 +7,61 @@ DATA_ROOT="$HOME/.local/share/assistant"
 SKILLS=(assistant journal backlog meeting person)
 DATA_SKILLS=(journal backlog meeting person)
 
+# QMD collection names map to data directories
+declare -A QMD_COLLECTIONS=(
+    [journal]="$DATA_ROOT/journal"
+    [backlog]="$DATA_ROOT/backlog"
+    [meeting]="$DATA_ROOT/meeting"
+    [person]="$DATA_ROOT/person"
+)
+
+declare -A QMD_CONTEXTS=(
+    [journal]="Daily journal entries and reflections, organized by year"
+    [backlog]="Task backlog organized by project folders, with priorities and due dates"
+    [meeting]="Meeting notes with attendees, topics, decisions, and action items"
+    [person]="People directory with relationships, birthdays, and how we met"
+)
+
 usage() {
     echo "Usage: $0 [--uninstall]"
     echo ""
     echo "Install:   $0"
     echo "Uninstall: $0 --uninstall"
+}
+
+setup_qmd() {
+    if ! command -v qmd &>/dev/null; then
+        echo "  [skip] qmd — not installed (install with: npm install -g @tobilu/qmd)"
+        return
+    fi
+
+    echo "  Setting up QMD collections..."
+    local existing
+    existing=$(qmd collection list 2>/dev/null || true)
+
+    for name in "${!QMD_COLLECTIONS[@]}"; do
+        local path="${QMD_COLLECTIONS[$name]}"
+        if echo "$existing" | grep -q "$name"; then
+            echo "  [skip] qmd/$name — collection already exists"
+        else
+            if qmd collection add "$path" --name "$name" 2>/dev/null; then
+                echo "  [ok]   qmd/$name — collection added"
+            else
+                echo "  [warn] qmd/$name — failed to add collection"
+            fi
+        fi
+
+        # Add context (idempotent)
+        local ctx="${QMD_CONTEXTS[$name]}"
+        qmd context add "qmd://$name" "$ctx" 2>/dev/null || true
+    done
+
+    echo "  Embedding QMD collections..."
+    if qmd embed 2>/dev/null; then
+        echo "  [ok]   qmd — embedding complete"
+    else
+        echo "  [warn] qmd — embedding failed (run 'qmd embed' manually)"
+    fi
 }
 
 install() {
@@ -55,6 +105,11 @@ install() {
     done
 
     echo ""
+
+    # Set up QMD collections
+    setup_qmd
+
+    echo ""
     echo "Done! Skills installed to $SKILLS_DIR"
     echo "Data directories at $DATA_ROOT"
 }
@@ -74,6 +129,18 @@ uninstall() {
             echo "  [skip] $skill — not found"
         fi
     done
+
+    # Remove QMD collections
+    if command -v qmd &>/dev/null; then
+        echo ""
+        for name in "${!QMD_COLLECTIONS[@]}"; do
+            if qmd collection remove "$name" 2>/dev/null; then
+                echo "  [ok]   qmd/$name — collection removed"
+            else
+                echo "  [skip] qmd/$name — not found"
+            fi
+        done
+    fi
 
     echo ""
     echo "Done! Symlinks removed. Data in $DATA_ROOT was NOT touched."

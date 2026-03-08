@@ -5,133 +5,42 @@ description: Use when the user wants to create a new person entry, search/query 
 
 # Person
 
-Manage the people directory: create new person entries, query/search people, and update existing entries.
+**CLI:** `python3 ~/.claude/skills/person/person_cli.py`
+**Data:** `~/.local/share/assistant/person/<Firstname Lastname>.md`
+**QMD collection:** `person`
 
-**CLI tool:** `python3 ~/.claude/skills/person/person_cli.py <command> [args]`
-**Config:** `~/.claude/skills/person/config.yaml`
-**People directory:** Configured in config.yaml (default: ~/.local/share/assistant/person)
+**Frontmatter:** `first_name`, `last_name`, `tags: [people]`, `birthday`, `how_we_met`, `last_meeting`, `father`, `mother`, `spouse`, `children`
 
-## Notes Structure
+## Detect Mode
 
-```
-<data_dir>/
-  Firstname Lastname.md
-  Firstname Lastname.md
-  ...
-  .index.md
-```
+- **Query mode** — "Who did I meet at Acme Corp?", "Birthdays in March"
+- **Create mode** — "Sarah Chen, met at React conference"
+- **Update mode** — "Update John Doe — last met today"
 
-Each person is a single markdown file in the root of the data directory. The index also includes a birthday calendar.
+## Query Mode
 
-**Frontmatter:**
-```yaml
----
-first_name: Jane
-last_name: Smith
-tags:
-  - people
-birthday: YYYY-MM-DD
-how_we_met: Tech conference 2025
-last_meeting: YYYY-MM-DD
-father:
-mother:
-spouse:
-children:
----
-```
+Query mode is read-only — never write files.
 
-**Body:** Freeform notes about the person.
+Search: `qmd query -c person --json "React conference"`
+Filters: `person_cli.py search --name "Jane" --tag "engineering" --how-we-met "conference"`
+Birthdays: `person_cli.py birthdays --month 7`
+Read: `person_cli.py read "Jane Smith.md"` or use the Read tool directly.
 
-## Phase 1: Refresh Index
+For family questions, follow `father`/`mother`/`children` links with additional reads.
 
-On every invocation, run:
-```
-python3 ~/.claude/skills/person/person_cli.py refresh
-```
-Returns JSON: `{added, removed, total}`. This also rebuilds the birthday calendar. Only mention changes to the user if relevant.
+## Create Mode
 
-## Phase 2: Detect Mode
+1. Extract name, how_we_met, birthday, tags from user input
+2. Check for duplicates: `person_cli.py search --name "Sarah Chen"` — if match exists, confirm with user
+3. Ask once: "Anything else? (birthday, tags, notes)"
+4. Write `Firstname Lastname.md` with frontmatter
+5. Run `qmd embed`
 
-**Update mode** — Input contains "update" + a person's name:
-- "Update John Doe — last met today"
-- "Update John birthday to 2022-07-15"
+## Update Mode
 
-**Query mode** — Input contains a question or search term:
-- "Who did I meet at Acme Corp?"
-- "Birthdays in March"
-- "Who is tagged with engineering?"
+1. Find: `person_cli.py search --name "John"`
+2. Read file, apply changes via Edit tool (not full rewrite)
+3. Run `qmd embed`
 
-**Create mode** — Input contains a name with descriptive info:
-- "Sarah Chen, met at React conference"
-
-If ambiguous, ask: "Do you want to create a new person entry, search for someone, or update an existing entry?"
-
-## Phase 3a: Query Mode (Read-Only)
-
-**Never write files during query mode.**
-
-Use CLI commands:
-
-**Search by name, tag, or how-we-met:**
-```
-python3 ~/.claude/skills/person/person_cli.py search --name "Jane"
-python3 ~/.claude/skills/person/person_cli.py search --tag "engineering"
-python3 ~/.claude/skills/person/person_cli.py search --how-we-met "tech conference"
-```
-
-**Birthdays:**
-```
-python3 ~/.claude/skills/person/person_cli.py birthdays --month 7
-```
-
-**Read a specific person for detail (relationships, body content):**
-```
-python3 ~/.claude/skills/person/person_cli.py read "Jane Smith.md"
-```
-
-### Relationship Traversal
-For family questions, use `read` to get the person file, then follow `father`/`mother`/`children` links with additional `read` calls.
-
-### Response Format
-- **Multi-person results:** Markdown table with relevant columns
-- **Single-person lookup:** Summary card showing all populated fields
-
-## Phase 3b: Create Mode
-
-1. **Parse input** — Extract name, how_we_met, birthday, tags from user message
-2. **Check for duplicates:**
-   ```
-   python3 ~/.claude/skills/person/person_cli.py search --name "Sarah Chen"
-   ```
-   If a match exists, ask: "A person named [Name] already exists. Did you mean to update them?"
-3. **Fill gaps** — Ask once: "Anything else you want to add? (birthday, location, tags, notes)"
-4. **Create file** — Write `Firstname Lastname.md` with frontmatter.
-5. **Update index** — Run `refresh` to pick up the new file.
-
-## Phase 3c: Update Mode
-
-1. **Find the person:**
-   ```
-   python3 ~/.claude/skills/person/person_cli.py search --name "John"
-   ```
-2. **Read the file** for current state
-3. **Apply changes** via the Edit tool (not full file rewrite)
-4. **Update index** — Run `refresh`
-
-## Date Handling
-
-Convert relative dates to actual dates:
-- "today" → current date (YYYY-MM-DD)
-- "yesterday" → current date minus 1 day
-- "March 5" → YYYY-03-05 (current year)
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---------|-----|
-| Writing files during query mode | Query mode is read-only |
-| Reading the index file directly | Use `search`, `birthdays`, or `refresh` commands instead |
-| Creating duplicate person files | Always check with `search --name` before creating |
-| Overwriting body content on update | Use Edit tool to modify specific fields, not full rewrite |
-| Missing `people` tag | Every person file must have `people` in tags |
-| Inventing person info | Only report what is in the files — never fabricate details |
+Convert relative dates: "today" → YYYY-MM-DD, "yesterday" → minus 1 day.
+**Never** invent person info. Every person file must have `people` in tags.

@@ -11,152 +11,54 @@ description: >
 
 # Assistant
 
-Coordinate across multiple skills to answer cross-cutting questions and handle multi-domain requests.
+Coordinate across skills for cross-cutting queries and multi-domain writes.
 
-## When to Use This Skill
+**Only activate** when the request touches 2+ skills or asks for a temporal summary. Single-domain requests ("create a task") go directly to their skill.
 
-- User asks a temporal/summary question: "what happened last week?", "catch me up", "summary of today"
-- User request touches 2+ skill domains: "I had a meeting with Alice and need to create a follow-up task"
-- User asks about a person across domains: "what's going on with Alice?"
+## Search
 
-## When NOT to Use This Skill
+All skills use [QMD](https://github.com/tobi/qmd) collections:
 
-- Request clearly maps to a single skill ("create a task", "write a journal entry")
-- Those go directly to their respective skills
-
-## Skill Registry
-
-| Skill | Domain | CLI Tool | Query/Search Command | Date Filter |
-|-------|--------|----------|---------------------|-------------|
-| journal | Daily entries and reflections | `python3 ~/.claude/skills/journal/journal_cli.py` | `query --date YYYY-MM-DD --search TEXT` | `--date` (prefix: YYYY, YYYY-MM, YYYY-MM-DD) |
-| backlog | Task management, projects, priorities, due dates | `python3 ~/.claude/skills/backlog/backlog_cli.py` | `query --status STATUS --project PROJECT --search TEXT` | `--due-before YYYY-MM-DD`, `--due-after YYYY-MM-DD` |
-| meeting | Meeting notes, attendees, topics | `python3 ~/.claude/skills/meeting/meeting_cli.py` | `query --date YYYY-MM-DD --attendee NAME --search TEXT` | `--date` (prefix: YYYY, YYYY-MM, YYYY-MM-DD) |
-| person | People directory, relationships, birthdays | `python3 ~/.claude/skills/person/person_cli.py` | `search --name NAME --tag TAG` | No date filter |
-
-### Additional CLI Commands
-
-- **backlog:** `dashboard` (overview by project), `stats`, `list-projects`
-- **person:** `birthdays --month N`
-- **All skills with CLIs:** `read <file>` to read a specific entry
-
-## Phase 1: Detect Mode
-
-### Query Mode (read-only)
-
-The user is asking about existing data across skills:
-- "What happened last week?"
-- "Catch me up"
-- "Summary of today"
-- "What's going on with Alice?"
-- "What have I been working on?"
-
-### Write Mode (multi-skill creation/update)
-
-The user describes something that requires creating/updating entries in multiple skills:
-- "I met Alice yesterday, we discussed the Cloud Migration project and she'll create a proposal by Friday"
-- "Had a meeting with the team and need to reschedule the follow-up"
-
-If ambiguous, ask: "Are you asking about existing data, or do you want me to create/update entries?"
-
-## Phase 2a: Cross-Skill Query Workflow
-
-**Never write files during query mode.**
-
-### Step 1: Determine Relevant Skills
-
-Map the request to skills:
-
-| Request Type | Skills to Query |
-|-------------|----------------|
-| "What happened last week/today?" | journal, meeting, backlog |
-| "What's going on with [person]?" | person, meeting, backlog |
-| "What have I been working on?" | journal, backlog |
-| "Catch me up" | journal, meeting, backlog |
-
-### Step 2: Query CLIs in Parallel
-
-Call all relevant CLI tools in parallel using the Bash tool. Examples:
-
-**Temporal query ("last week", given today is YYYY-MM-DD, compute date range accordingly):**
 ```bash
-python3 ~/.claude/skills/journal/journal_cli.py query --date YYYY-MM
-python3 ~/.claude/skills/meeting/meeting_cli.py query --date YYYY-MM
-python3 ~/.claude/skills/backlog/backlog_cli.py query --due-after YYYY-MM-DD --due-before YYYY-MM-DD
+qmd query --json "Alice"                              # search all collections
+qmd query -c journal -c meeting --json "project update" # specific collections
 ```
 
-**Person query ("what's going on with Alice"):**
+For structured/date queries, run CLIs in parallel:
 ```bash
-python3 ~/.claude/skills/person/person_cli.py search --name "Alice"
-python3 ~/.claude/skills/meeting/meeting_cli.py query --attendee "Alice"
-python3 ~/.claude/skills/backlog/backlog_cli.py query --search "Alice"
+journal_cli.py query --date YYYY-MM
+meeting_cli.py query --date YYYY-MM --attendee NAME
+backlog_cli.py query --status open --due-before YYYY-MM-DD
+backlog_cli.py dashboard
+calendar_cli.py events --date YYYY-MM-DD --days 7
 ```
 
-**Today's summary (given today is YYYY-MM-DD):**
-```bash
-python3 ~/.claude/skills/journal/journal_cli.py query --date YYYY-MM-DD
-python3 ~/.claude/skills/meeting/meeting_cli.py query --date YYYY-MM-DD
-python3 ~/.claude/skills/backlog/backlog_cli.py dashboard
-```
+CLIs live at `~/.claude/skills/<skill>/<skill>_cli.py`.
 
-### Step 3: Synthesize Results
+## Query Mode
 
-Combine results based on query type:
-- **Temporal queries** -- present as a chronological timeline, grouped by day
-- **Person queries** -- group by interaction type (meetings, backlog items mentioning them)
-- **Work queries** -- narrative combining journal entries and task activity
+Never write files. Choose strategy:
+- **Text/topic/person** → QMD across collections
+- **Date-based** → CLIs in parallel
+- **Overview** → `backlog_cli.py dashboard`
 
-**Rules:**
-- Never invent information not in CLI output
-- If a skill returns no results, omit it from the response (don't say "no meetings found")
-- If ALL skills return no results, say so clearly
+Synthesize results:
+- Temporal → chronological timeline by day
+- Person → group by interaction type
+- Work → narrative of journal + tasks
 
-## Phase 2b: Multi-Skill Write Workflow
+Omit skills with no results. Never invent information.
 
-### Step 1: Parse Intent
+## Write Mode
 
-Extract all actionable items and map to skills:
-- Meeting details -> **meeting** skill
-- People mentioned -> **person** skill (for resolution)
-- Follow-up actions/deadlines -> **backlog** skill
-- Daily reflection -> **journal** skill
+When the user describes something spanning multiple skills:
 
-### Step 2: Confirm Plan
+1. **Parse intent** → map to skills (calendar, meeting, person, backlog, journal)
+2. **Confirm plan** before executing:
+   > I'll do: 1. [Skill]: [action] 2. [Skill]: [action]. Does that look right?
+3. **Invoke skills sequentially** via Skill tool: person → meeting → journal → backlog → calendar
+4. **Report** what was created
 
-**Always** present the plan before executing. Format:
+Sequential because: meetings need resolved names, tasks may reference meetings, journal may already be created by meeting skill.
 
-> I'll do the following:
-> 1. [Skill]: [what will be created/updated]
-> 2. [Skill]: [what will be created/updated]
->
-> Does that look right?
-
-Wait for user confirmation. Adjust if they correct anything.
-
-### Step 3: Invoke Skills Sequentially via Skill Tool
-
-After confirmation, invoke each skill using the Skill tool in this order:
-1. **person** -- resolve names first (other skills may need the correct person reference)
-2. **meeting** -- create meeting notes (also handles related journal entry)
-3. **journal** -- only if a standalone journal entry is needed (not already covered by meeting)
-4. **backlog** -- create follow-up tasks
-
-Sequential because:
-- Meeting needs resolved person names
-- Tasks may reference meeting content
-- Journal may be created by meeting skill already
-
-### Step 4: Summary
-
-Report what was created with file paths.
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---------|-----|
-| Activating for single-skill requests | Only activate when multiple skills are needed |
-| Writing files directly | Always delegate writes to individual skills via Skill tool |
-| Skipping the confirmation step for writes | Always confirm the plan before invoking skills |
-| Querying via Skill tool instead of CLI | Use CLI directly for reads -- faster and simpler |
-| Inventing information not in CLI output | Only present what the CLIs return |
-| Running write skills in parallel | Run sequentially -- writes may depend on each other |
-| Using wrong date filter for backlog | Backlog uses `--due-before`/`--due-after`, not `--date` |
+**Never** write files directly — delegate to individual skills. **Never** skip confirmation for writes.

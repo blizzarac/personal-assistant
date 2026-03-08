@@ -24,20 +24,33 @@ Coordinate across multiple skills to answer cross-cutting questions and handle m
 - Request clearly maps to a single skill ("create a task", "write a journal entry")
 - Those go directly to their respective skills
 
+## Search
+
+All skills are indexed as [QMD](https://github.com/tobi/qmd) collections. Use QMD for search:
+
+**Search across all skills at once:**
+```bash
+qmd query --json "Alice"
+```
+
+**Search specific collections:**
+```bash
+qmd query -c journal -c meeting --json "project update"
+qmd query -c backlog --json "Cloud Migration"
+```
+
+Results include `file` paths prefixed with `qmd://<collection>/` so you can tell which skill each result belongs to.
+
 ## Skill Registry
 
-| Skill | Domain | CLI Tool | Query/Search Command | Date Filter |
-|-------|--------|----------|---------------------|-------------|
-| journal | Daily entries and reflections | `python3 ~/.claude/skills/journal/journal_cli.py` | `query --date YYYY-MM-DD --search TEXT` | `--date` (prefix: YYYY, YYYY-MM, YYYY-MM-DD) |
-| backlog | Task management, projects, priorities, due dates | `python3 ~/.claude/skills/backlog/backlog_cli.py` | `query --status STATUS --project PROJECT --search TEXT` | `--due-before YYYY-MM-DD`, `--due-after YYYY-MM-DD` |
-| meeting | Meeting notes, attendees, topics | `python3 ~/.claude/skills/meeting/meeting_cli.py` | `query --date YYYY-MM-DD --attendee NAME --search TEXT` | `--date` (prefix: YYYY, YYYY-MM, YYYY-MM-DD) |
-| person | People directory, relationships, birthdays | `python3 ~/.claude/skills/person/person_cli.py` | `search --name NAME --tag TAG` | No date filter |
+| Skill | QMD Collection | CLI Tool | Structured Query |
+|-------|---------------|----------|-----------------|
+| journal | `journal` | `python3 ~/.claude/skills/journal/journal_cli.py` | `query --date YYYY-MM-DD --tag TAG` |
+| backlog | `backlog` | `python3 ~/.claude/skills/backlog/backlog_cli.py` | `query --status STATUS --project PROJECT`, `dashboard`, `stats` |
+| meeting | `meeting` | `python3 ~/.claude/skills/meeting/meeting_cli.py` | `query --date YYYY-MM-DD --attendee NAME` |
+| person | `person` | `python3 ~/.claude/skills/person/person_cli.py` | `search --name NAME --tag TAG`, `birthdays --month N` |
 
-### Additional CLI Commands
-
-- **backlog:** `dashboard` (overview by project), `stats`, `list-projects`
-- **person:** `birthdays --month N`
-- **All skills with CLIs:** `read <file>` to read a specific entry
+Use QMD for text/semantic search. Use CLIs for structured field-based queries (date ranges, status filters, attendee lookups, birthday months).
 
 ## Phase 1: Detect Mode
 
@@ -62,43 +75,30 @@ If ambiguous, ask: "Are you asking about existing data, or do you want me to cre
 
 **Never write files during query mode.**
 
-### Step 1: Determine Relevant Skills
+### Step 1: Choose Search Strategy
 
-Map the request to skills:
+**For text/topic/person queries** — use QMD across collections:
+```bash
+# Search everything at once
+qmd query --json "Alice"
 
-| Request Type | Skills to Query |
-|-------------|----------------|
-| "What happened last week/today?" | journal, meeting, backlog |
-| "What's going on with [person]?" | person, meeting, backlog |
-| "What have I been working on?" | journal, backlog |
-| "Catch me up" | journal, meeting, backlog |
+# Or target specific collections
+qmd query -c meeting -c backlog --json "Cloud Migration"
+```
 
-### Step 2: Query CLIs in Parallel
-
-Call all relevant CLI tools in parallel using the Bash tool. Examples:
-
-**Temporal query ("last week", given today is YYYY-MM-DD, compute date range accordingly):**
+**For structured/date queries** — use CLIs in parallel:
 ```bash
 python3 ~/.claude/skills/journal/journal_cli.py query --date YYYY-MM
 python3 ~/.claude/skills/meeting/meeting_cli.py query --date YYYY-MM
 python3 ~/.claude/skills/backlog/backlog_cli.py query --due-after YYYY-MM-DD --due-before YYYY-MM-DD
 ```
 
-**Person query ("what's going on with Alice"):**
+**For dashboard/overview** — use backlog CLI:
 ```bash
-python3 ~/.claude/skills/person/person_cli.py search --name "Alice"
-python3 ~/.claude/skills/meeting/meeting_cli.py query --attendee "Alice"
-python3 ~/.claude/skills/backlog/backlog_cli.py query --search "Alice"
-```
-
-**Today's summary (given today is YYYY-MM-DD):**
-```bash
-python3 ~/.claude/skills/journal/journal_cli.py query --date YYYY-MM-DD
-python3 ~/.claude/skills/meeting/meeting_cli.py query --date YYYY-MM-DD
 python3 ~/.claude/skills/backlog/backlog_cli.py dashboard
 ```
 
-### Step 3: Synthesize Results
+### Step 2: Synthesize Results
 
 Combine results based on query type:
 - **Temporal queries** -- present as a chronological timeline, grouped by day
@@ -106,7 +106,7 @@ Combine results based on query type:
 - **Work queries** -- narrative combining journal entries and task activity
 
 **Rules:**
-- Never invent information not in CLI output
+- Never invent information not in search output
 - If a skill returns no results, omit it from the response (don't say "no meetings found")
 - If ALL skills return no results, say so clearly
 
@@ -156,7 +156,5 @@ Report what was created with file paths.
 | Activating for single-skill requests | Only activate when multiple skills are needed |
 | Writing files directly | Always delegate writes to individual skills via Skill tool |
 | Skipping the confirmation step for writes | Always confirm the plan before invoking skills |
-| Querying via Skill tool instead of CLI | Use CLI directly for reads -- faster and simpler |
-| Inventing information not in CLI output | Only present what the CLIs return |
+| Inventing information not in search output | Only present what QMD/CLIs return |
 | Running write skills in parallel | Run sequentially -- writes may depend on each other |
-| Using wrong date filter for backlog | Backlog uses `--due-before`/`--due-after`, not `--date` |

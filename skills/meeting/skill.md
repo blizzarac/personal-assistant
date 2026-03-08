@@ -10,6 +10,7 @@ Create structured meeting notes and link them to the journal.
 **CLI tool:** `python3 ~/.claude/skills/meeting/meeting_cli.py <command> [args]`
 **Config:** `~/.claude/skills/meeting/config.yaml`
 **Meetings directory:** Configured in config.yaml (default: ~/.local/share/assistant/meeting/YYYY/)
+**Search:** Uses [QMD](https://github.com/tobi/qmd) collection `meeting` for semantic search.
 
 ## Notes Structure
 
@@ -19,7 +20,6 @@ Create structured meeting notes and link them to the journal.
     Title (YYYY-MM-DD).md
     Title (YYYY-MM-DD).md
     ...
-  .meetings-index.md
 ```
 
 Meetings are organized by year. Each meeting is a single markdown file named `<Title> (YYYY-MM-DD).md`.
@@ -42,13 +42,13 @@ scheduling: Ad hoc
 - `## Decisions` — what was decided
 - `## Action Items` — what needs to happen next, with owners
 
-## Phase 1: Refresh Index
+## Phase 1: Refresh Search Index
 
 On every invocation, run:
 ```
-python3 ~/.claude/skills/meeting/meeting_cli.py refresh
+qmd embed
 ```
-Returns JSON: `{added, removed, total}`. Only mention changes to the user if relevant.
+This re-indexes all QMD collections. Only mention this to the user if relevant.
 
 ## Phase 2: Detect Mode
 
@@ -68,19 +68,24 @@ If ambiguous, ask: "Do you want to create meeting notes, or search past meetings
 
 **Never write files during query mode.**
 
-Use CLI commands:
-
-**Search by attendee, date, or topic:**
+**Search meetings with QMD:**
+```bash
+qmd query -c meeting --json "Cloud Migration"
+qmd query -c meeting --json "Alice"
 ```
-python3 ~/.claude/skills/meeting/meeting_cli.py query --attendee "Alice"
+
+**Date-based queries:** Use the CLI for structured date filtering:
+```
 python3 ~/.claude/skills/meeting/meeting_cli.py query --date "2025-09"
-python3 ~/.claude/skills/meeting/meeting_cli.py query --search "Cloud Migration"
+python3 ~/.claude/skills/meeting/meeting_cli.py query --attendee "Alice"
 ```
 
 **Read a specific meeting for detail:**
 ```
 python3 ~/.claude/skills/meeting/meeting_cli.py read "2025/Team Sync (2025-09-11).md"
 ```
+
+Or read the file directly with the Read tool.
 
 Present results as markdown table or narrative depending on query type.
 
@@ -137,12 +142,11 @@ Follow the journal skill pattern for the same date:
 2. If exists — append meeting summary under `## Meetings` section
 3. If not — create a minimal journal entry with the meeting link
 
-### Step 6: Update indexes
+### Step 6: Update search index
 
-Run both:
+Run:
 ```
-python3 ~/.claude/skills/meeting/meeting_cli.py refresh
-python3 ~/.claude/skills/journal/journal_cli.py refresh
+qmd embed
 ```
 
 ## Common Mistakes
@@ -150,9 +154,7 @@ python3 ~/.claude/skills/journal/journal_cli.py refresh
 | Mistake | Fix |
 |---------|-----|
 | Writing files during query mode | Query mode is read-only |
-| Reading index files directly | Use `query` or `refresh` commands instead |
-| Not resolving attendee names | Always check the people index via person CLI |
+| Not resolving attendee names | Always check the people directory via person CLI |
 | Inventing meeting content | Only structure what the user provided |
 | Wrong filename format | Always use `<Title> (YYYY-MM-DD).md` |
 | Forgetting journal entry | Every meeting must also create/update a journal entry |
-| Not updating both indexes | Both meetings and journal indexes must be refreshed |

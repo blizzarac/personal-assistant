@@ -16,6 +16,7 @@ A Claude Code skills package that turns Claude into a personal assistant — jou
    # or
    ./install.sh              # macOS / Linux only
    ```
+   This symlinks the skills, creates data directories, and registers [QMD](https://github.com/tobi/qmd) collections for semantic search (if qmd is installed).
 
 3. Start using it in Claude Code:
    - "Journal entry — had a great day hiking"
@@ -35,7 +36,7 @@ A Claude Code skills package that turns Claude into a personal assistant — jou
 
 ## How It Works
 
-- **Reads:** The assistant queries sub-skill CLIs in parallel for fast lookups
+- **Reads:** The assistant uses [QMD](https://github.com/tobi/qmd) for semantic search across all skills, plus CLIs for structured queries
 - **Writes:** The assistant delegates to individual skills via Claude Code's Skill tool for structured creation
 - **Data:** Each skill stores markdown files in its own directory
 

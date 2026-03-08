@@ -1,7 +1,6 @@
 data_dir: ~/.local/share/assistant/meeting
-index_file: .meetings-index.md
+collection: meeting
 journal_data_dir: ~/.local/share/assistant/journal
-journal_index_file: .index.md
 person_data_dir: ~/.local/share/assistant/person
 exclude:
   - .meetings-index.md

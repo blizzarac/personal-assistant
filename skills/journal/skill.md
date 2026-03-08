@@ -10,6 +10,7 @@ Manage the user's journal: create new entries and query journal history.
 **CLI tool:** `python3 ~/.claude/skills/journal/journal_cli.py <command> [args]`
 **Config:** `~/.claude/skills/journal/config.yaml`
 **Journal directory:** Configured in config.yaml (default: ~/.local/share/assistant/journal)
+**Search:** Uses [QMD](https://github.com/tobi/qmd) collection `journal` for semantic search.
 
 ## Notes Structure
 
@@ -19,7 +20,6 @@ Manage the user's journal: create new entries and query journal history.
     YYYY-MM-DD-DayOfWeek-Journal.md
     YYYY-MM-DD-DayOfWeek-Journal.md
     ...
-  .index.md
 ```
 
 One file per day. If multiple entries are written on the same day, they are appended to the existing file separated by `---`.
@@ -36,13 +36,13 @@ description: One-line summary of the day
 
 **Body:** Freeform structured content from conversation.
 
-## Phase 1: Refresh Index
+## Phase 1: Refresh Search Index
 
 On every invocation, run:
 ```
-python3 ~/.claude/skills/journal/journal_cli.py refresh
+qmd embed
 ```
-Returns JSON: `{added, removed, total}`. Only mention changes to the user if relevant.
+This re-indexes all QMD collections. Only mention this to the user if relevant.
 
 ## Phase 2: Detect Mode
 
@@ -58,13 +58,19 @@ If ambiguous, ask: "Do you want to write a journal entry, or are you looking for
 
 ## Phase 3a: Query Mode
 
-Use CLI commands instead of reading files directly:
+**Never write files during query mode.**
 
-**Date/tag/search queries:**
+**Search journal entries with QMD:**
+```bash
+qmd query -c journal --json "fishing trip"
+qmd search -c journal --json "morning routine"
+```
+Use `query` for semantic/hybrid search, `search` for keyword-only.
+
+**Date-based queries:** Use the CLI for structured date filtering:
 ```
 python3 ~/.claude/skills/journal/journal_cli.py query --date "2025-09"
 python3 ~/.claude/skills/journal/journal_cli.py query --tag "work"
-python3 ~/.claude/skills/journal/journal_cli.py query --search "fishing"
 ```
 
 **Read a specific entry for detail:**
@@ -72,11 +78,11 @@ python3 ~/.claude/skills/journal/journal_cli.py query --search "fishing"
 python3 ~/.claude/skills/journal/journal_cli.py read "2025/2025-09-06-Saturday-Journal.md"
 ```
 
+Or read the file directly with the Read tool.
+
 Present results in the appropriate format:
 - **Time-based** — narrative of key events from that period
-- **Search** — show matching entries from `query --search`
-
-**Never write files during query mode** — read-only.
+- **Search** — show matching entries from QMD results
 
 ## Phase 3b: Write Mode
 
@@ -116,20 +122,18 @@ description: One-line summary of the day
 [Freeform structured content from conversation.]
 ```
 
-## Phase 4: Update Index
+## Phase 4: Update Search Index
 
 After creating/modifying a journal entry, run:
 ```
-python3 ~/.claude/skills/journal/journal_cli.py refresh
+qmd embed
 ```
-This will pick up the new/changed file automatically.
 
 ## Common Mistakes
 
 | Mistake | Fix |
 |---------|-----|
 | Writing files during query mode | Query mode is read-only |
-| Reading the index file directly | Use `query` or `refresh` commands instead |
 | Asking multiple questions at once | One question per message during write mode |
 | Creating a second file for the same day | Always check if today's file exists first — append to it |
 | Wrong filename format | New entries use `YYYY-MM-DD-DayOfWeek-Journal.md` |

@@ -10,6 +10,7 @@ Manage the people directory: create new person entries, query/search people, and
 **CLI tool:** `python3 ~/.claude/skills/person/person_cli.py <command> [args]`
 **Config:** `~/.claude/skills/person/config.yaml`
 **People directory:** Configured in config.yaml (default: ~/.local/share/assistant/person)
+**Search:** Uses [QMD](https://github.com/tobi/qmd) collection `person` for semantic search.
 
 ## Notes Structure
 
@@ -18,10 +19,9 @@ Manage the people directory: create new person entries, query/search people, and
   Firstname Lastname.md
   Firstname Lastname.md
   ...
-  .index.md
 ```
 
-Each person is a single markdown file in the root of the data directory. The index also includes a birthday calendar.
+Each person is a single markdown file in the root of the data directory.
 
 **Frontmatter:**
 ```yaml
@@ -42,13 +42,13 @@ children:
 
 **Body:** Freeform notes about the person.
 
-## Phase 1: Refresh Index
+## Phase 1: Refresh Search Index
 
 On every invocation, run:
 ```
-python3 ~/.claude/skills/person/person_cli.py refresh
+qmd embed
 ```
-Returns JSON: `{added, removed, total}`. This also rebuilds the birthday calendar. Only mention changes to the user if relevant.
+This re-indexes all QMD collections. Only mention this to the user if relevant.
 
 ## Phase 2: Detect Mode
 
@@ -70,9 +70,13 @@ If ambiguous, ask: "Do you want to create a new person entry, search for someone
 
 **Never write files during query mode.**
 
-Use CLI commands:
+**Search people with QMD:**
+```bash
+qmd query -c person --json "React conference"
+qmd query -c person --json "engineering"
+```
 
-**Search by name, tag, or how-we-met:**
+**Structured queries:** Use the CLI for field-specific filtering:
 ```
 python3 ~/.claude/skills/person/person_cli.py search --name "Jane"
 python3 ~/.claude/skills/person/person_cli.py search --tag "engineering"
@@ -88,6 +92,8 @@ python3 ~/.claude/skills/person/person_cli.py birthdays --month 7
 ```
 python3 ~/.claude/skills/person/person_cli.py read "Jane Smith.md"
 ```
+
+Or read the file directly with the Read tool.
 
 ### Relationship Traversal
 For family questions, use `read` to get the person file, then follow `father`/`mother`/`children` links with additional `read` calls.
@@ -106,7 +112,7 @@ For family questions, use `read` to get the person file, then follow `father`/`m
    If a match exists, ask: "A person named [Name] already exists. Did you mean to update them?"
 3. **Fill gaps** — Ask once: "Anything else you want to add? (birthday, location, tags, notes)"
 4. **Create file** — Write `Firstname Lastname.md` with frontmatter.
-5. **Update index** — Run `refresh` to pick up the new file.
+5. **Update search index** — Run `qmd embed`.
 
 ## Phase 3c: Update Mode
 
@@ -116,7 +122,7 @@ For family questions, use `read` to get the person file, then follow `father`/`m
    ```
 2. **Read the file** for current state
 3. **Apply changes** via the Edit tool (not full file rewrite)
-4. **Update index** — Run `refresh`
+4. **Update search index** — Run `qmd embed`
 
 ## Date Handling
 
@@ -130,7 +136,6 @@ Convert relative dates to actual dates:
 | Mistake | Fix |
 |---------|-----|
 | Writing files during query mode | Query mode is read-only |
-| Reading the index file directly | Use `search`, `birthdays`, or `refresh` commands instead |
 | Creating duplicate person files | Always check with `search --name` before creating |
 | Overwriting body content on update | Use Edit tool to modify specific fields, not full rewrite |
 | Missing `people` tag | Every person file must have `people` in tags |

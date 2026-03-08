@@ -10,14 +10,7 @@ Manage tasks: create, update, query, and get overviews.
 **CLI tool:** `python3 ~/.claude/skills/backlog/backlog_cli.py <command> [args]`
 **Config:** `~/.claude/skills/backlog/config.yaml`
 **Tasks directory:** Configured in config.yaml (default: ~/.local/share/assistant/backlog)
-**Search:** Uses [QMD](https://github.com/tobi/qmd) for hybrid semantic search when available, falls back to substring matching.
-
-## Prerequisites
-
-Install QMD for semantic search (optional but recommended):
-```bash
-npm install -g @tobilu/qmd
-```
+**Search:** Uses [QMD](https://github.com/tobi/qmd) collection `backlog` for semantic search.
 
 ## Notes Structure
 
@@ -58,9 +51,9 @@ description: One-line summary
 
 On every invocation, run:
 ```
-python3 ~/.claude/skills/backlog/backlog_cli.py refresh
+qmd embed
 ```
-This re-embeds the QMD collection for search. Returns JSON: `{status, indexed, total}`. Only mention changes to the user if relevant.
+This re-indexes all QMD collections. Only mention this to the user if relevant.
 
 ## Phase 2: Detect Mode
 
@@ -88,17 +81,20 @@ If ambiguous, ask: "Do you want to create a new task, update an existing one, or
 
 **Never write files during query mode.**
 
-Use CLI commands:
+**Search tasks with QMD:**
+```bash
+qmd query -c backlog --json "Cloud Migration"
+qmd query -c backlog --json "API documentation"
+```
 
-**Filter tasks:**
+**Structured queries:** Use the CLI for field-specific filtering:
 ```
 python3 ~/.claude/skills/backlog/backlog_cli.py query --status open
 python3 ~/.claude/skills/backlog/backlog_cli.py query --status open --project MyProject
-python3 ~/.claude/skills/backlog/backlog_cli.py query --search "Cloud Migration"
 python3 ~/.claude/skills/backlog/backlog_cli.py query --due-before 2026-03-01
 python3 ~/.claude/skills/backlog/backlog_cli.py query --priority 1
 ```
-Filters can be combined. The `--search` flag uses QMD hybrid search (semantic + BM25) when available. Returns `{results, count, source}`.
+Filters can be combined. Returns `{results, count}`.
 
 **Dashboard overview:**
 ```
@@ -122,6 +118,8 @@ python3 ~/.claude/skills/backlog/backlog_cli.py list-projects
 python3 ~/.claude/skills/backlog/backlog_cli.py read "MyProject/API Integration.md"
 ```
 
+Or read the file directly with the Read tool.
+
 Present results as markdown tables or narrative depending on the question.
 
 ## Phase 3b: Create Mode
@@ -136,7 +134,7 @@ If user mentions attachments or supporting files, create a folder-style task man
 1. Create directory: `tasks/<project>/<Task Name>/`
 2. Create `tasks/<project>/<Task Name>/<Task Name>.md` with frontmatter
 
-Run `refresh` after creation.
+Run `qmd embed` after creation.
 
 ## Phase 3c: Update Mode
 
@@ -155,14 +153,7 @@ python3 ~/.claude/skills/backlog/backlog_cli.py close "MyProject/Task Name.md"
 ```
 Auto-fills `completed_date` with today.
 
-Run `refresh` after any update.
-
-## Phase 4: Refresh Search Index
-
-After any write operation (create, update, close), run:
-```
-python3 ~/.claude/skills/backlog/backlog_cli.py refresh
-```
+Run `qmd embed` after any update.
 
 ## Common Mistakes
 
@@ -170,7 +161,7 @@ python3 ~/.claude/skills/backlog/backlog_cli.py refresh
 |---------|-----|
 | Writing files during query mode | Query mode is read-only |
 | Asking multiple questions at once | One question per message during create mode |
-| Not running refresh after writes | Always refresh after create/update/close |
+| Not running `qmd embed` after writes | Always re-embed after create/update/close |
 | Creating duplicate tasks | Search first before creating |
 | Updating wrong task on ambiguous match | Always confirm with user if multiple matches |
 | Inventing task content | Only use what the user provided |
